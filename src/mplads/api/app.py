@@ -609,6 +609,54 @@ def case_report(work_ref: str,
     )
 
 
+@app.get("/api/case/{work_ref}/casework")
+def case_casework(work_ref: str) -> dict:
+    """Whether this work is being worked as a case, and how far along it is.
+
+    The link between the two halves of the product. The intelligence screens answer "why
+    was this surfaced"; this answers "and what has anyone done about it" — which is the
+    question a reviewer opening a case file six weeks later actually has.
+    """
+    from mplads import salesforce as sf
+
+    ref = work_ref.upper()
+    case = next((c for c in sf.load_salesforce_cases() if c["work_ref"] == ref), None)
+    try:
+        verifications = field.for_work(ref)
+    except Exception:
+        verifications = []
+
+    if not case:
+        return {
+            "in_salesforce": False,
+            "verifications": len(verifications),
+            "note": (
+                "Not currently a Salesforce case. The 500 highest Audit-ROI leads are "
+                "loaded for casework; the rest stay in the queue until an officer picks "
+                "one up."
+            ),
+        }
+
+    stage = case.get("investigation_status") or "New"
+    guidance = next((s["guidance"] for s in sf.PATH_STAGES if s["stage"] == stage), "")
+    return {
+        "in_salesforce": True,
+        "stage": stage,
+        "stages": sf.STAGE_NAMES,
+        "stage_index": sf.STAGE_NAMES.index(stage) if stage in sf.STAGE_NAMES else 0,
+        "guidance": guidance,
+        "escalation_tier": case.get("escalation_tier"),
+        "target_review_date": case.get("target_review_date"),
+        "officer_finding": case.get("officer_finding") or "",
+        "verifications": len(verifications),
+        "findings": [
+            {"outcome": v["outcome"], "actor": v["actor"], "when": v["created_at"][:10],
+             "notes": v.get("notes", "")}
+            for v in verifications
+        ],
+    }
+
+
 # ------------------------------------------------- login, OCR, field verification
 
 
@@ -846,6 +894,9 @@ class UpdateStageRequest(BaseModel):
 
 class AgentforceQueryRequest(BaseModel):
     question: str
+    #: Translates the answer's structure and, most importantly, its contract line. Figures
+    #: and work references are never translated — they are identifiers, not words.
+    lang: str = "en"
 
 
 @app.get("/api/salesforce/overview")
@@ -949,5 +1000,5 @@ def agentforce_query(req: AgentforceQueryRequest) -> dict:
     from mplads import salesforce as sf
     if not req.question.strip():
         raise HTTPException(400, "question is required")
-    return sf.query_agentforce(req.question.strip())
+    return sf.query_agentforce(req.question.strip(), lang=req.lang.strip())
 

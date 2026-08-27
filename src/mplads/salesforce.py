@@ -354,11 +354,24 @@ def extract_budget(question: str) -> float:
     return float(max(1, min(int(found.group(1)), 1000)))
 
 
-def query_agentforce(question: str) -> dict[str, Any]:
-    """Execute an Agentforce inquiry over all 210,993 works and Salesforce CRM cases."""
+def query_agentforce(question: str, lang: str = "en") -> dict[str, Any]:
+    """Execute an Agentforce inquiry over all 210,993 works and Salesforce CRM cases.
+
+    `lang` translates the *structure* of the answer — headings, field labels and the
+    non-fraud contract — from committed strings. Figures, work references and agency names
+    stay exactly as they are: a work reference is an identifier rather than a word, and an
+    officer has to be able to search for and quote back what they are shown.
+
+    The contract is the one line with a duty to arrive in the reader's language. A Tamil
+    reader shown a list of flagged works and an English disclaimer has, in practice, been
+    shown a list of flagged works.
+    """
     import re
+
+    from mplads import agentforce_i18n
     from mplads.chat import _store
 
+    t = agentforce_i18n.bundle(lang)
     q = question.lower().strip()
     cases = load_salesforce_cases()
     st = _store()
@@ -376,23 +389,23 @@ def query_agentforce(question: str) -> dict[str, Any]:
             guidance = next((s["guidance"] for s in PATH_STAGES if s["stage"] == match["investigation_status"]), "")
             return {
                 "answer": (
-                    f"### ⚡ Agentforce Investigation Brief: `{match['work_ref']}`\n\n"
-                    f"**Location & Ownership**:\n"
-                    f"• **State / Constituency**: {match['state']} ({match['constituency']})\n"
-                    f"• **Implementing Agency**: {match['implementing_agency']}\n"
-                    f"• **MP**: {match['mp_name']}\n\n"
-                    f"**Financial & Risk Assessment**:\n"
-                    f"• **Recommended Sanction**: ₹{match['recommended_amount']/1e5:.2f} Lakh\n"
-                    f"• **Exposure at Risk**: ₹{match['exposure']/1e5:.2f} Lakh (Audit-ROI Score: `{match['audit_roi']:.2f}`)\n"
-                    f"• **Confidence Band**: `{match['confidence_band']}` ({match['signal_families']} independent signal families)\n\n"
-                    f"**Salesforce CRM Casework & Path**:\n"
-                    f"• **Current Investigation Stage**: `{match['investigation_status']}`\n"
-                    f"• **Escalation Tier**: `{match['escalation_tier']}`\n"
-                    f"• **Target Review Date**: {match['target_review_date']}\n"
-                    f"• **Officer Stage Guidance**: _{guidance}_\n\n"
-                    f"**Corroborating Evidence**:\n{ev_text}\n\n"
-                    f"**Recommended Next Step**:\n{match['recommended_next_step']}\n\n"
-                    f"_Protocol: This is an investigation lead with evidence, not a finding of wrongdoing._"
+                    f"### ⚡ {t['brief']}: `{match['work_ref']}`\n\n"
+                    f"**{t['location']}**:\n"
+                    f"• **{t['state']}**: {match['state']} ({match['constituency']})\n"
+                    f"• **{t['agency']}**: {match['implementing_agency']}\n"
+                    f"• **{t['mp']}**: {match['mp_name']}\n\n"
+                    f"**{t['financial']}**:\n"
+                    f"• **{t['recommended']}**: ₹{match['recommended_amount']/1e5:.2f} Lakh\n"
+                    f"• **{t['exposure']}**: ₹{match['exposure']/1e5:.2f} Lakh (Audit-ROI: `{match['audit_roi']:.2f}`)\n"
+                    f"• **{t['confidence']}**: `{match['confidence_band']}` ({match['signal_families']} {t['families']})\n\n"
+                    f"**{t['casework']}**:\n"
+                    f"• **{t['stage']}**: `{match['investigation_status']}`\n"
+                    f"• **{t['tier']}**: `{match['escalation_tier']}`\n"
+                    f"• **{t['review_by']}**: {match['target_review_date']}\n"
+                    f"• **{t['guidance']}**: _{guidance}_\n\n"
+                    f"**{t['evidence']}**:\n{ev_text}\n\n"
+                    f"**{t['next_step']}**:\n{match['recommended_next_step']}\n\n"
+                    f"_{t['contract']}_"
                 ),
                 "case": match,
                 "evidence": evidence,
@@ -522,29 +535,31 @@ def query_agentforce(question: str) -> dict[str, Any]:
             listed = "\n".join(
                 f"  {row['order']}. **{row['work_ref']}** ({row['state']}) - "
                 f"Rs {row['exposure_rupees']/1e7:.2f} Cr"
-                + ("  _same trip_" if row["repeat_visit"] else "")
+                + (f"  _{t['same_trip']}_" if row["repeat_visit"] else "")
                 for row in first
             )
+            note = f"\n\n_{t['english_note']}_" if t.get("english_note") else ""
             return {
                 "answer": (
-                    f"### \u26a1 Agentforce Audit Plan - {budget:.0f} auditor-days\n\n"
+                    f"### \u26a1 {t['audit_plan']} - {budget:.0f} {t['auditor_days']}\n\n"
                     f"A travel-aware plan, not a ranking. Cases at the same implementing "
                     f"agency share one trip, so the plan buys more coverage than working "
                     f"a list top-down.\n\n"
-                    f"**What {budget:.0f} days buys**\n"
-                    f"- **{totals['works']} works** across **{totals['agencies']} agency "
-                    f"visits** in {totals['states']} states\n"
-                    f"- **Rs {totals['exposure_rupees']/1e7:.1f} Cr** of exposure covered\n"
-                    f"- **{totals['repeat_visits']} of those works** cost no extra travel"
+                    f"**{t['what_it_buys']}**\n"
+                    f"- **{totals['works']} {t['works']}** / "
+                    f"**{totals['agencies']} {t['visits']}** / "
+                    f"{totals['states']} {t['in_states']}\n"
+                    f"- **Rs {totals['exposure_rupees']/1e7:.1f} Cr** {t['covered']}\n"
+                    f"- **{totals['repeat_visits']}** {t['no_extra_travel']}"
                     f"{gain}\n\n"
-                    f"**Start here**\n{listed}\n\n"
-                    f"_This allocates attention. It does not allege anything about any "
-                    f"work, agency or person, and a human approves the plan._"
+                    f"**{t['start_here']}**\n{listed}\n\n"
+                    f"_{t['plan_contract']}_{note}"
                 ),
                 "plan": result["plan"][:20],
                 "totals": totals,
                 "topic": "Audit Planning",
                 "source": "Agentforce",
+                "lang": lang,
             }
         except Exception as exc:                       # pragma: no cover - defensive
             LOGGER.warning("agentforce audit plan unavailable: %s", type(exc).__name__)
@@ -559,13 +574,11 @@ def query_agentforce(question: str) -> dict[str, Any]:
         untouched = counts.get("New", 0)
         return {
             "answer": (
-                f"### \u26a1 Agentforce Casework Status\n\n"
-                f"{len(cases)} investigation cases are loaded in Salesforce, moving through "
-                f"the five-stage Path:\n\n{listed}\n\n"
-                f"**{untouched}** have not been looked at by a person yet. A case only "
-                f"leaves *Verified* once an officer records what they actually found - "
-                f"including 'nothing wrong', which is as useful to the system as a "
-                f"confirmed problem."
+                f"### \u26a1 {t['casework_status']}\n\n"
+                f"{len(cases)} {t['cases_loaded']}:\n\n{listed}\n\n"
+                f"**{untouched}** {t['not_yet_seen']}. A case only leaves *Verified* once "
+                f"an officer records what they actually found - including 'nothing wrong', "
+                f"which is as useful to the system as a confirmed problem."
             ),
             "counts": counts,
             "topic": "Casework Status",

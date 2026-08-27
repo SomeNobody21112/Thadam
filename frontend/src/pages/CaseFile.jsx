@@ -6,6 +6,7 @@ import { Reveal } from "../components/Reveal.jsx";
 import { authority, prettify, riskFill, sevFill } from "../severity.js";
 import Insight from "../components/Insight.jsx";
 import FieldVerify from "../components/FieldVerify.jsx";
+import CaseworkStrip from "../components/CaseworkStrip.jsx";
 
 const FAM_ICON = {
   amount: "₹", duration: "⏱", lifecycle: "⚑",
@@ -86,6 +87,8 @@ export default function CaseFile() {
           worth checking. About <strong>{rupees(c.exposure_rupees)}</strong> may be tied up if it does
           not finish. Read the evidence below, then see the recommended next step for a human.
         </div>
+
+        <CaseworkStrip workRef={ref} />
 
         <Insight kind="case" workRef={ref} />
 
@@ -332,6 +335,8 @@ function ClearRecord({ work }) {
             <div className="foot">learned from description, not declared</div>
           </div>
         </div></Reveal>
+
+        <CaseworkStrip workRef={work.work_ref} />
 
         <FieldVerify workRef={work.work_ref} />
 

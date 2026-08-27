@@ -44,6 +44,7 @@ export const api = {
       body: JSON.stringify(body),
     }).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }),
   fieldSummary: () => get("/api/field/summary"),
+  casework: (ref) => get(`/api/case/${encodeURIComponent(ref)}/casework`),
   auditPlan: (budgetDays) => get(`/api/audit-plan?budget_days=${budgetDays}`),
   // The report opens in a tab rather than downloading through fetch: the browser renders
   // a PDF natively, and an officer usually wants to read it before deciding to keep it.
@@ -104,11 +105,11 @@ export const api = {
       if (!r.ok) throw new Error(String(r.status));
       return r.json();
     }),
-  agentforceQuery: (question) =>
+  agentforceQuery: (question, lang = "en") =>
     fetch("/api/agentforce/query", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, lang }),
     }).then((r) => {
       if (!r.ok) throw new Error(String(r.status));
       return r.json();

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { useI18n } from "../I18nContext.jsx";
 import { api, num, rupees } from "../api.js";
 import { Band, Loading, Topbar } from "../components/Bits.jsx";
 import { Reveal } from "../components/Reveal.jsx";
@@ -13,6 +14,9 @@ const STAGE_COLORS = {
 };
 
 export default function SalesforceHub() {
+  // One language for the whole product. The assistant answering in English while the
+  // chrome around it is in Tamil is worse than not offering Tamil.
+  const { lang } = useI18n();
   const [overview, setOverview] = useState(null);
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -112,7 +116,7 @@ export default function SalesforceHub() {
     setAgentHistory((prev) => [...prev, { role: "user", content: question }]);
     setAgentBusy(true);
     try {
-      const res = await api.agentforceQuery(question);
+      const res = await api.agentforceQuery(question, lang);
       setAgentHistory((prev) => [
         ...prev,
         { role: "assistant", content: res.answer || "No response received." },

@@ -1009,3 +1009,64 @@ tbody tr:last-child td { border-bottom: none; }
 .btn-report:hover { border-color: var(--brick); color: var(--brick-deep);
   transform: translateY(-1px); }
 .btn-report-icon { font-size: 14px; color: var(--brick); }
+
+/* ============================================================ CASEWORK STRIP */
+.casework { background: var(--panel); border: 1px solid var(--line);
+  border-left: 3px solid var(--forest); border-radius: var(--r); padding: 16px 18px;
+  margin-bottom: 18px; animation: fadeUp 0.4s var(--ease); }
+.casework-absent { display: flex; gap: 11px; align-items: flex-start;
+  border-left-color: var(--line-strong); font-size: 12.5px; line-height: 1.65;
+  color: var(--text-2); }
+.casework-absent strong { color: var(--text); }
+.casework-dot { color: var(--text-3); font-size: 13px; margin-top: 1px; }
+
+.casework-head { display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 14px; flex-wrap: wrap; margin-bottom: 15px; }
+.casework-stage { font-family: "Fraunces", Georgia, serif; font-size: 19px;
+  font-weight: 600; color: var(--text); margin-top: 3px; }
+.casework-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 5px; }
+.casework-chip { font-size: 10px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.8px; color: var(--forest); background: var(--forest-soft);
+  border-radius: 20px; padding: 3px 11px; white-space: nowrap; }
+.casework-due { font-size: 10.5px; color: var(--text-3);
+  font-family: "Roboto Mono", monospace; }
+
+/* the Path, mirrored from Salesforce so both surfaces read the same */
+.casework-path { display: flex; list-style: none; margin: 0 0 13px; padding: 0;
+  gap: 4px; overflow-x: auto; }
+.casework-step { display: flex; align-items: center; gap: 7px; flex: 1 1 0;
+  min-width: 96px; padding: 7px 10px; border-radius: var(--r-sm);
+  background: var(--bg-2); border: 1px solid var(--line-soft);
+  animation: fadeUp 0.4s var(--ease) backwards; animation-delay: calc(var(--i) * 60ms); }
+.casework-step.done { background: var(--forest-soft); border-color: transparent; }
+.casework-step.current { background: var(--brick-soft); border-color: var(--brick); }
+.casework-step-mark { width: 17px; height: 17px; border-radius: 50%; flex: none;
+  display: grid; place-items: center; font-size: 9.5px; font-weight: 800;
+  background: var(--line); color: var(--text-3);
+  font-family: "Roboto Mono", monospace; }
+.casework-step.done .casework-step-mark { background: var(--forest); color: #fff; }
+.casework-step.current .casework-step-mark { background: var(--brick); color: #fff; }
+.casework-step-name { font-size: 11px; font-weight: 600; color: var(--text-3);
+  white-space: nowrap; }
+.casework-step.done .casework-step-name { color: var(--forest); }
+.casework-step.current .casework-step-name { color: var(--brick-deep); }
+
+.casework-guidance { font-size: 12.5px; line-height: 1.7; color: var(--text-2);
+  padding-top: 11px; border-top: 1px solid var(--line-soft); }
+
+.casework-findings { margin-top: 14px; padding-top: 13px;
+  border-top: 1px solid var(--line-soft); }
+.casework-finding { display: flex; flex-wrap: wrap; gap: 5px 12px; align-items: baseline;
+  padding: 7px 0; border-bottom: 1px solid var(--line-soft); }
+.casework-finding:last-of-type { border-bottom: none; }
+.casework-outcome { font-size: 10.5px; font-weight: 800; text-transform: uppercase;
+  letter-spacing: 0.7px; color: var(--brick-deep); }
+.casework-notes { font-size: 12.5px; color: var(--text-2); flex: 1 1 260px; }
+.casework-by { font-size: 10.5px; color: var(--text-3);
+  font-family: "Roboto Mono", monospace; }
+.casework-label-note { font-size: 11px; line-height: 1.65; color: var(--text-3);
+  margin-top: 10px; }
+
+.casework-open { display: inline-block; margin-top: 12px; font-size: 12px;
+  font-weight: 600; color: var(--brick-deep);
+  border-bottom: 1px dotted currentColor; }
