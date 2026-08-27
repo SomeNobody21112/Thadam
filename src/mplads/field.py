@@ -82,6 +82,18 @@ MIGRATIONS: dict[str, str] = {
     "phash": "ALTER TABLE verification ADD COLUMN phash TEXT",
     "dhash": "ALTER TABLE verification ADD COLUMN dhash TEXT",
     "demo": "ALTER TABLE verification ADD COLUMN demo INTEGER NOT NULL DEFAULT 0",
+    # What the camera actually saw, kept separately from what was verified. The two
+    # disagreeing is the single most useful thing a photograph can tell us, and storing
+    # only the resolved answer throws that away — a board reading one digit wrong at 99.6%
+    # confidence lands on a different real work, and that has to survive into the record.
+    "board_ref": "ALTER TABLE verification ADD COLUMN board_ref TEXT",
+    "board_amount": "ALTER TABLE verification ADD COLUMN board_amount REAL",
+    "ocr_confidence": "ALTER TABLE verification ADD COLUMN ocr_confidence REAL",
+    "needed_confirmation":
+        "ALTER TABLE verification ADD COLUMN needed_confirmation INTEGER NOT NULL DEFAULT 0",
+    "photo_reuse_count":
+        "ALTER TABLE verification ADD COLUMN photo_reuse_count INTEGER NOT NULL DEFAULT 0",
+    "reused_from": "ALTER TABLE verification ADD COLUMN reused_from TEXT",
 }
 
 
@@ -160,12 +172,21 @@ def check_photo(data: bytes, name: str, work_ref: str, actor: str = "anonymous")
 
 def record(work_ref: str, outcome: str, actor: str, role: str, notes: str = "",
            photo: str | None = None, ocr_text: str | None = None,
-           demo: bool = False) -> dict:
+           demo: bool = False, board_ref: str | None = None,
+           board_amount: float | None = None, ocr_confidence: float | None = None,
+           needed_confirmation: bool = False, photo_reuse_count: int = 0,
+           reused_from: str | None = None) -> dict:
     """Append one verification. Immutable once written.
 
     `demo` marks a record seeded for a demonstration. It is carried through to the API and
     shown in the interface, and excluded from the label count — a walkthrough must never
     inflate the number of real site visits.
+
+    The `board_*` and `photo_*` arguments carry what the camera found, kept apart from what
+    the officer concluded. A reference read off a board that disagrees with the work being
+    verified, or a photograph already submitted for a different sanction, is evidence in its
+    own right — and it is evidence about the *verification*, not about the work, which is
+    exactly why it belongs on this record rather than folded into the outcome.
     """
     if outcome not in OUTCOMES:
         raise ValueError(f"unknown outcome: {outcome}")
@@ -177,16 +198,22 @@ def record(work_ref: str, outcome: str, actor: str, role: str, notes: str = "",
     with _connect() as conn:
         cur = conn.execute(
             "INSERT INTO verification (work_ref, outcome, notes, photo, ocr_text, actor,"
-            " role, created_at, row_hash, phash, dhash, demo)"
-            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            " role, created_at, row_hash, phash, dhash, demo, board_ref, board_amount,"
+            " ocr_confidence, needed_confirmation, photo_reuse_count, reused_from)"
+            " VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (work_ref, outcome, notes, photo, ocr_text, actor, role, ts, row_hash,
-             prints.get("phash"), prints.get("dhash"), int(demo)),
+             prints.get("phash"), prints.get("dhash"), int(demo),
+             board_ref, board_amount, ocr_confidence, int(needed_confirmation),
+             int(photo_reuse_count), reused_from),
         )
         conn.commit()
         new_id = cur.lastrowid
     LOGGER.info("verification %s recorded for %s by %s", outcome, work_ref, actor)
     return {"id": new_id, "work_ref": work_ref, "outcome": outcome, "created_at": ts,
-            "row_hash": row_hash, "demo": demo}
+            "row_hash": row_hash, "demo": demo,
+            "board_ref": board_ref, "board_disagrees": bool(board_ref
+                                                            and board_ref != work_ref),
+            "photo_reuse_count": photo_reuse_count}
 
 
 def _photo_hashes(photo: str | None) -> dict[str, str]:
@@ -309,3 +336,50 @@ def photo_reuse_report() -> dict:
 
 #: Worst-first, so `min(..., key=_LEVEL_ORDER.index)` keeps the strongest claim in a cluster.
 _LEVEL_ORDER = ["IDENTICAL", "NEAR_IDENTICAL", "SAME_SCENE", "DIFFERENT"]
+
+
+def photo_forensics_summary() -> dict:
+    """What the camera evidence says across every verification recorded.
+
+    Separated from `label_readiness` on purpose. Readiness counts labels; this counts
+    *questions raised by photographs* — boards that disagreed with the record, matches the
+    machine refused to settle, and pictures submitted more than once. None of them is a
+    finding, and all of them are worth a person's attention.
+    """
+    with _connect() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT work_ref, board_ref, ocr_confidence, needed_confirmation,"
+            " photo_reuse_count, reused_from, actor, created_at, demo"
+            # The filter is on the evidence, not the file. A record can carry camera
+            # evidence with no stored photograph — the upload can fail after the read
+            # succeeds — and a re-used-photograph finding carries neither a board reference
+            # nor, necessarily, a saved image, while being exactly the kind of question
+            # this summary exists to count.
+            " FROM verification WHERE photo IS NOT NULL OR board_ref IS NOT NULL"
+            " OR photo_reuse_count > 0"
+            " ORDER BY id DESC"
+        )]
+
+    disagreed = [r for r in rows if r["board_ref"] and r["board_ref"] != r["work_ref"]]
+    unsettled = [r for r in rows if r["needed_confirmation"]]
+    reused = [r for r in rows if (r["photo_reuse_count"] or 0) > 0]
+
+    return {
+        "photographs": len(rows),
+        "board_disagreed_with_record": len(disagreed),
+        "machine_refused_to_settle": len(unsettled),
+        "photographs_seen_before": len(reused),
+        "examples": [
+            {"work_ref": r["work_ref"], "board_ref": r["board_ref"],
+             "confidence": r["ocr_confidence"], "reused_from": r["reused_from"],
+             "actor": r["actor"], "when": str(r["created_at"])[:10],
+             "demonstration_record": bool(r["demo"])}
+            for r in (disagreed + reused)[:10]
+        ],
+        "note": (
+            "A board that disagrees with the record is usually a misread digit, not a "
+            "misplaced work; MPLADS references run in sequence, so a single wrong "
+            "character lands on a different real work. A photograph seen before is usually "
+            "two phases of one site. Both are questions for a person, never conclusions."
+        ),
+    }

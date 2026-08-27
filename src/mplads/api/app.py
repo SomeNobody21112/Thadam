@@ -755,6 +755,15 @@ class VerificationRequest(BaseModel):
     notes: str = ""
     photo: str | None = None
     ocr_text: str | None = None
+    #: What the camera found, kept apart from what the officer concluded. The reference
+    #: read off the board is not the same claim as the work being verified, and the two
+    #: disagreeing is the most useful thing a photograph can report.
+    board_ref: str | None = None
+    board_amount: float | None = None
+    ocr_confidence: float | None = None
+    needed_confirmation: bool = False
+    photo_reuse_count: int = 0
+    reused_from: str | None = None
 
 
 @app.post("/api/verify/{work_ref}")
@@ -777,6 +786,10 @@ def add_verification(work_ref: str, req: VerificationRequest,
             work_ref=work_ref, outcome=req.outcome, notes=req.notes.strip(),
             photo=req.photo, ocr_text=req.ocr_text,
             actor=principal.subject, role=principal.role,
+            board_ref=req.board_ref, board_amount=req.board_amount,
+            ocr_confidence=req.ocr_confidence,
+            needed_confirmation=req.needed_confirmation,
+            photo_reuse_count=req.photo_reuse_count, reused_from=req.reused_from,
         )
     except ValueError as exc:
         raise HTTPException(400, str(exc))
@@ -793,7 +806,8 @@ def field_summary() -> dict:
     """Verification activity, and how far it is from producing usable labels."""
     return {"readiness": field.label_readiness(), "recent": field.recent(20),
             "outcomes": field.OUTCOMES, "ocr_available": ocr.available(),
-            "photo_reuse": field.photo_reuse_report()}
+            "photo_reuse": field.photo_reuse_report(),
+            "forensics": field.photo_forensics_summary()}
 
 
 @app.get("/api/insight/case/{work_ref}")

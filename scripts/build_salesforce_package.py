@@ -102,6 +102,44 @@ EVIDENCE_FIELDS: list[tuple[str, str, str, dict]] = [
 ]
 
 
+#: What an officer found on site, and what the camera found while they were there.
+#:
+#: These are two different claims and the object keeps them apart on purpose. The outcome
+#: is the officer's judgement. `Board_Reference__c` is what the OCR read off the physical
+#: work board — which, on a weathered board, is one digit wrong at 99.6% confidence and
+#: lands on a *different real work*, because MPLADS references run in sequence. Folding the
+#: second into the first would destroy the only signal that says "check this match".
+VERIFICATION_FIELDS: list[tuple[str, str, str, dict]] = [
+    ("Work_Ref__c", "Work Reference", "Text", {"length": 40, "required": True}),
+    ("Investigation_Case__c", "Investigation Case", "Lookup",
+     {"referenceTo": "Investigation_Case__c",
+      "relationshipName": "Site_Verifications", "relationshipLabel": "Site Verifications"}),
+    ("Outcome__c", "Outcome", "Picklist",
+     {"values": ["VERIFIED_COMPLETE", "VERIFIED_IN_PROGRESS", "NOT_STARTED",
+                 "NOT_FOUND", "RECORD_MISMATCH", "NO_ACCESS"]}),
+    ("Notes__c", "Officer Notes", "LongTextArea", {"length": 5000, "visibleLines": 4}),
+    ("Recorded_By__c", "Recorded By", "Text", {"length": 120}),
+    ("Recorded_On__c", "Recorded On", "Date", {}),
+    # --- what the camera found
+    ("Board_Reference__c", "Board Reference Read", "Text", {"length": 40}),
+    ("Board_Amount__c", "Board Amount Read", "Currency", {"precision": 18, "scale": 2}),
+    ("OCR_Confidence__c", "OCR Character Confidence", "Percent",
+     {"precision": 5, "scale": 2}),
+    ("Board_Disagrees__c", "Board Disagrees With Record", "Checkbox",
+     {"formula": "AND(NOT(ISBLANK(Board_Reference__c)), "
+                 "Board_Reference__c &lt;&gt; Work_Ref__c)"}),
+    ("Needed_Confirmation__c", "Machine Refused To Settle", "Checkbox",
+     {"default": "false"}),
+    ("Photo_Reuse_Count__c", "Photograph Seen Before", "Number",
+     {"precision": 3, "scale": 0}),
+    ("Reused_From__c", "Photograph First Used On", "Text", {"length": 40}),
+    ("OCR_Text__c", "Board Text", "LongTextArea", {"length": 5000, "visibleLines": 3}),
+    ("Row_Hash__c", "Immutable Record Hash", "Text",
+     {"length": 64, "externalId": True, "unique": True, "required": True}),
+    ("Demo__c", "Demonstration Record", "Checkbox", {"default": "false"}),
+]
+
+
 def field_xml(api: str, label: str, kind: str, spec: dict) -> str:
     body = [f"    <fullName>{api}</fullName>", f"    <label>{escape(label)}</label>",
             f"    <type>{kind}</type>"]
@@ -122,7 +160,13 @@ def field_xml(api: str, label: str, kind: str, spec: dict) -> str:
         body.append(f"    <precision>{spec['precision']}</precision>")
         body.append(f"    <scale>{spec['scale']}</scale>")
     elif kind == "Checkbox":
-        body.append(f"    <defaultValue>{spec.get('default', 'false')}</defaultValue>")
+        if spec.get("formula"):
+            # A derived field cannot drift from the columns it compares. Storing this as
+            # data meant the sync had to remember to set it, and the first sync did not.
+            body.append(f"    <formula>{spec['formula']}</formula>")
+            body.append("    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>")
+        else:
+            body.append(f"    <defaultValue>{spec.get('default', 'false')}</defaultValue>")
     elif kind == "Lookup":
         body.append(f"    <referenceTo>{spec['referenceTo']}</referenceTo>")
         body.append(f"    <relationshipName>{spec['relationshipName']}</relationshipName>")
@@ -174,6 +218,36 @@ def object_xml(label: str, plural: str, prefix: str, list_views: str = "") -> st
     )
 
 
+VERIFICATION_LIST_VIEWS = """    <listViews>
+        <fullName>All_Verifications</fullName>
+        <columns>NAME</columns>
+        <columns>Work_Ref__c</columns>
+        <columns>Outcome__c</columns>
+        <columns>Recorded_By__c</columns>
+        <columns>Recorded_On__c</columns>
+        <filterScope>Everything</filterScope>
+        <label>All Site Verifications</label>
+    </listViews>
+    <listViews>
+        <fullName>Camera_Raised_A_Question</fullName>
+        <columns>NAME</columns>
+        <columns>Work_Ref__c</columns>
+        <columns>Board_Reference__c</columns>
+        <columns>OCR_Confidence__c</columns>
+        <columns>Photo_Reuse_Count__c</columns>
+        <columns>Reused_From__c</columns>
+        <columns>Recorded_By__c</columns>
+        <filterScope>Everything</filterScope>
+        <filters>
+            <field>Board_Disagrees__c</field>
+            <operation>equals</operation>
+            <!-- Salesforce list-view filters take 1/0 for a checkbox, not true/false. -->
+            <value>1</value>
+        </filters>
+        <label>Camera Raised A Question</label>
+    </listViews>
+"""
+
 CASE_LIST_VIEWS = """    <listViews>
         <fullName>All_Cases</fullName>
         <columns>NAME</columns>
@@ -222,12 +296,17 @@ CASE_LIST_VIEWS = """    <listViews>
 """
 
 
+#: Fields Salesforce computes for itself. A layout offering to edit one fails
+#: to deploy, which is the correct complaint - there is nothing to type into.
+READONLY_FIELDS = {"Board_Disagrees__c"}
+
+
 def layout_xml(object_api: str, sections: list[tuple[str, list[str]]]) -> str:
     blocks = []
     for heading, fields in sections:
         items = "\n".join(
             "            <layoutItems>\n"
-            "                <behavior>Edit</behavior>\n"
+            f"                <behavior>{'Readonly' if f in READONLY_FIELDS else 'Edit'}</behavior>\n"
             f"                <field>{f}</field>\n"
             "            </layoutItems>"
             for f in fields
@@ -267,7 +346,7 @@ def app_xml() -> str:
             "    <formFactors>Small</formFactors>\n"
             "    <formFactors>Large</formFactors>\n"
             "    <tabs>Investigation_Case__c</tabs>\n"
-            "    <tabs>Evidence__c</tabs>\n"
+            "    <tabs>Evidence__c</tabs>\n    <tabs>Site_Verification__c</tabs>\n"
             "    <tabs>standard-report</tabs>\n"
             "    <tabs>standard-Dashboard</tabs>\n"
             "    <description>Investigation leads from the MPLADS intelligence engine, "
@@ -285,6 +364,7 @@ def permission_set_xml() -> str:
     targets = [
         ("Investigation_Case__c", [(f[0], f[3]) for f in CASE_FIELDS]),
         ("Evidence__c", [(f[0], f[3]) for f in EVIDENCE_FIELDS]),
+        ("Site_Verification__c", [(f[0], f[3]) for f in VERIFICATION_FIELDS]),
     ]
 
     field_rows = []
@@ -329,8 +409,10 @@ def write(path: Path, text: str) -> None:
 
 
 def main() -> None:
-    if PKG.exists():
-        shutil.rmtree(PKG)
+    # Clear the source tree, not the package root: a terminal sitting in the folder holds
+    # a lock on it, and failing the whole regenerate over that is needless.
+    if (PKG / "force-app").exists():
+        shutil.rmtree(PKG / "force-app")
 
     write(PKG / "sfdx-project.json",
           '{\n'
@@ -346,6 +428,8 @@ def main() -> None:
         ("Investigation_Case__c", "Investigation Case", "Investigation Cases", "INV",
          CASE_FIELDS, CASE_LIST_VIEWS),
         ("Evidence__c", "Evidence", "Evidence", "EV", EVIDENCE_FIELDS, ""),
+        ("Site_Verification__c", "Site Verification", "Site Verifications", "SV",
+         VERIFICATION_FIELDS, VERIFICATION_LIST_VIEWS),
     ]:
         base = SRC / "objects" / obj
         write(base / f"{obj}.object-meta.xml", object_xml(label, plural, prefix, views))
@@ -371,6 +455,19 @@ def main() -> None:
                                      "Officer_Finding__c", "Not_A_Fraud_Finding__c"]),
           ]))
 
+    write(SRC / "layouts"
+          / "Site_Verification__c-Site Verification Layout.layout-meta.xml",
+          layout_xml("Site_Verification__c", [
+              ("What The Officer Found", ["Work_Ref__c", "Investigation_Case__c",
+                                          "Outcome__c", "Notes__c", "Recorded_By__c",
+                                          "Recorded_On__c"]),
+              ("What The Camera Found", ["Board_Reference__c", "Board_Amount__c",
+                                         "OCR_Confidence__c", "Board_Disagrees__c",
+                                         "Needed_Confirmation__c", "OCR_Text__c"]),
+              ("Photograph Forensics", ["Photo_Reuse_Count__c", "Reused_From__c"]),
+              ("Provenance", ["Row_Hash__c", "Demo__c"]),
+          ]))
+
     write(SRC / "layouts" / "Evidence__c-Evidence Layout.layout-meta.xml",
           layout_xml("Evidence__c", [
               ("Evidence", ["Investigation_Case__c", "Work_Ref__c", "Signal__c",
@@ -379,6 +476,8 @@ def main() -> None:
 
     write(SRC / "tabs" / "Investigation_Case__c.tab-meta.xml", tab_xml("Investigation_Case__c", "Custom18: Magnifying Glass"))
     write(SRC / "tabs" / "Evidence__c.tab-meta.xml", tab_xml("Evidence__c", "Custom19: Handsaw"))
+    write(SRC / "tabs" / "Site_Verification__c.tab-meta.xml",
+          tab_xml("Site_Verification__c", "Custom51: Camera"))
     write(SRC / "applications" / "MPLADS_Investigations.app-meta.xml", app_xml())
     write(SRC / "permissionsets" / "MPLADS_Investigator.permissionset-meta.xml",
           permission_set_xml())

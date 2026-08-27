@@ -7,6 +7,7 @@
     <formFactors>Large</formFactors>
     <tabs>Investigation_Case__c</tabs>
     <tabs>Evidence__c</tabs>
+    <tabs>Site_Verification__c</tabs>
     <tabs>standard-report</tabs>
     <tabs>standard-Dashboard</tabs>
     <description>Investigation leads from the MPLADS intelligence engine, with the casework that follows them.</description>

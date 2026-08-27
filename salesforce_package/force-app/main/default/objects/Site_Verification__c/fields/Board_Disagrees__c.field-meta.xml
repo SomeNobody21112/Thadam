@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Board_Disagrees__c</fullName>
+    <label>Board Disagrees With Record</label>
+    <type>Checkbox</type>
+    <formula>AND(NOT(ISBLANK(Board_Reference__c)), Board_Reference__c &lt;&gt; Work_Ref__c)</formula>
+    <formulaTreatBlanksAs>BlankAsZero</formulaTreatBlanksAs>
+</CustomField>

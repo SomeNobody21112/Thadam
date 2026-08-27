@@ -195,3 +195,63 @@ def test_readiness_reports_the_gap_instead_of_claiming_it_is_closed(store):
     assert after["labels_needed_to_fit_weights"] == 498
     assert after["ready_to_fit"] is False
     assert "no accuracy is claimed" in after["note"]
+
+
+# ------------------------------------------------- camera evidence on a verification
+
+
+def test_what_the_camera_read_is_stored_apart_from_what_was_verified(store):
+    """The two disagreeing is the most useful thing a photograph can report.
+
+    A weathered board reads one digit wrong at 99.6% confidence and lands on a *different
+    real work*, because MPLADS references run in sequence. Storing only the resolved
+    answer throws away the one signal that says "check this match".
+    """
+    store.record("MP3017167-W136962", "RECORD_MISMATCH", actor="r.sharma", role="auditor",
+                 board_ref="MP3017167-W136963", ocr_confidence=0.996,
+                 needed_confirmation=True)
+    row = store.for_work("MP3017167-W136962")[0]
+    assert row["board_ref"] == "MP3017167-W136963"
+    assert row["work_ref"] != row["board_ref"]
+    assert row["needed_confirmation"] == 1
+
+
+def test_a_record_reports_whether_its_board_disagreed(store):
+    disagreed = store.record("MP1-W1", "RECORD_MISMATCH", actor="a", role="auditor",
+                             board_ref="MP1-W2")
+    agreed = store.record("MP1-W1", "VERIFIED_COMPLETE", actor="a", role="auditor",
+                          board_ref="MP1-W1")
+    assert disagreed["board_disagrees"] is True
+    assert agreed["board_disagrees"] is False
+
+
+def test_photo_reuse_travels_with_the_verification(store):
+    store.record("MP2-W2", "VERIFIED_COMPLETE", actor="a", role="auditor",
+                 photo_reuse_count=2, reused_from="MP9-W9")
+    row = store.for_work("MP2-W2")[0]
+    assert row["photo_reuse_count"] == 2
+    assert row["reused_from"] == "MP9-W9"
+
+
+def test_forensics_counts_questions_not_findings(store):
+    store.record("MP1-W1", "RECORD_MISMATCH", actor="a", role="auditor",
+                 board_ref="MP1-W9", needed_confirmation=True)
+    store.record("MP2-W2", "VERIFIED_COMPLETE", actor="a", role="auditor",
+                 photo_reuse_count=1, reused_from="MP1-W1")
+    store.record("MP3-W3", "VERIFIED_COMPLETE", actor="a", role="auditor")
+
+    summary = store.photo_forensics_summary()
+    assert summary["board_disagreed_with_record"] == 1
+    assert summary["machine_refused_to_settle"] == 1
+    assert summary["photographs_seen_before"] == 1
+    # The record with no camera evidence is not counted as a question.
+    assert summary["photographs"] == 2
+    assert "questions for a person, never conclusions" in summary["note"]
+
+
+def test_camera_evidence_is_optional(store):
+    """Most verifications are typed, not photographed, and must still record."""
+    store.record("MP4-W4", "NOT_STARTED", actor="a", role="auditor")
+    row = store.for_work("MP4-W4")[0]
+    assert row["board_ref"] is None
+    assert row["photo_reuse_count"] == 0

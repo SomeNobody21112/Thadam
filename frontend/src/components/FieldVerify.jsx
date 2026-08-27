@@ -71,11 +71,20 @@ export default function FieldVerify({ workRef }) {
     if (!outcome || saving || blocked) return;
     setSaving(true);
     try {
+      // What the camera found travels with the finding. The reference read off the board
+      // is a separate claim from the work being verified, and the two disagreeing is the
+      // most useful thing a photograph can report — so it is stored, not resolved away.
       await api.verify(workRef, {
         outcome,
         notes,
         photo: photo?.name || null,
         ocr_text: scan?.lines?.map((l) => l.text).join(" ") || null,
+        board_ref: scan?.match?.work_ref || null,
+        board_amount: scan?.fields?.amount?.value ?? null,
+        ocr_confidence: scan?.fields?.work_ref?.confidence ?? null,
+        needed_confirmation: Boolean(scan?.match?.needs_confirmation || reuse.length),
+        photo_reuse_count: reuse.length,
+        reused_from: reuse[0]?.work_ref || null,
       });
       setSaved(true);
       reset();
