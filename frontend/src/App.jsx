@@ -10,6 +10,8 @@ import Duplicates from "./pages/Duplicates.jsx";
 import Compliance from "./pages/Compliance.jsx";
 import Transparency from "./pages/Transparency.jsx";
 import Archetypes from "./pages/Archetypes.jsx";
+import SalesforceHub from "./pages/SalesforceHub.jsx";
+import AuditPlan from "./pages/AuditPlan.jsx";
 import { RoleProvider, RoleSwitcher, useRole } from "./RoleContext.jsx";
 import { useScrollProgress } from "./hooks.js";
 import { LanguageSwitcher } from "./I18nContext.jsx";
@@ -26,6 +28,13 @@ const NAV = [
     items: [
       { to: "/overview", ic: "▤", key: "nav.overview", label: "Overview" },
       { to: "/worklist", ic: "▦", key: "nav.worklist", label: "Investigation Queue" },
+      { to: "/audit-plan", ic: "◷", key: "nav.auditPlan", label: "Audit Plan" },
+    ],
+  },
+  {
+    key: "nav.crm", label: "Casework & CRM",
+    items: [
+      { to: "/salesforce", ic: "⚡", key: "nav.salesforce", label: "Salesforce & Agentforce" },
     ],
   },
   {
@@ -189,6 +198,8 @@ function Shell() {
             <Routes>
               <Route path="/overview" element={<Overview />} />
               <Route path="/worklist" element={<Worklist />} />
+              <Route path="/audit-plan" element={<AuditPlan />} />
+              <Route path="/salesforce" element={<SalesforceHub />} />
               <Route path="/trends" element={<Trends />} />
               <Route path="/duplicates" element={<Duplicates />} />
               <Route path="/compliance" element={<Compliance />} />

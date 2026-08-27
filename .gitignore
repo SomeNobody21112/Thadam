@@ -25,3 +25,7 @@ frontend/dist/
 # Frontend build
 frontend/node_modules/
 frontend/dist/
+
+# Generated sample output — regenerate with the scripts, do not commit
+case_report_sample.pdf
+.vscode/

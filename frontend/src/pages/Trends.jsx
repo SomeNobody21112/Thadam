@@ -4,6 +4,7 @@ import { api, num, rupees } from "../api.js";
 import { Band, Loading, Topbar } from "../components/Bits.jsx";
 import { Reveal } from "../components/Reveal.jsx";
 import { TREND_LEVEL, prettify, sevFill } from "../severity.js";
+import { useI18n } from "../I18nContext.jsx";
 
 /** Warm parchment tooltip — matches the one on Overview. */
 const TIP = {
@@ -22,9 +23,10 @@ function Tag({ value }) {
 
 export default function Trends() {
   const [d, setD] = useState(null);
+  const { t } = useI18n();
   useEffect(() => { api.temporal().then(setD).catch(console.error); }, []);
 
-  if (!d) return (<><Topbar title="Temporal Intelligence" /><div className="content"><Loading /></div></>);
+  if (!d) return (<><Topbar title={t("trends.title", "Temporal Intelligence")} /><div className="content"><Loading /></div></>);
 
   const series = d.national_series.map((s) => ({
     period: s.period, works: s.works,
@@ -33,20 +35,20 @@ export default function Trends() {
 
   return (
     <>
-      <Topbar title="Temporal Intelligence"
-        sub="How the scheme is changing over time"
-        right={<span className="pill">{num(d.counts.agencies_analysed)} agencies analysed</span>} />
+      <Topbar title={t("trends.title", "Temporal Intelligence")}
+        sub={t("trends.sub", "How the scheme is changing over time")}
+        right={<span className="pill">{num(d.counts.agencies_analysed)} {t("trends.agenciesAnalysed", "agencies analysed")}</span>} />
       <div className="content">
         <div className="hitl">
           <span>📈</span>
           <span>
-            <strong>Method:</strong> {d.method_note}
+            <strong>{t("trends.method", "Method:")}</strong> {d.method_note}
           </span>
         </div>
 
         <Reveal><div className="grid cols-2">
           <div className="card">
-            <h3>National monthly work volume</h3>
+            <h3>{t("trends.volume", "National monthly work volume")}</h3>
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={series}>
                 <CartesianGrid stroke="#f1ece1" vertical={false} />
@@ -65,7 +67,7 @@ export default function Trends() {
           </div>
 
           <div className="card">
-            <h3>National median recommended amount (₹ thousand)</h3>
+            <h3>{t("trends.median", "National median recommended amount (thousand)")}</h3>
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={series}>
                 <CartesianGrid stroke="#f1ece1" vertical={false} />
@@ -85,12 +87,12 @@ export default function Trends() {
         </div>
 
         </Reveal>
-        <Reveal><div className="section-title">Emerging Public Works Radar</div></Reveal>
+        <Reveal><div className="section-title">{t("trends.radar", "Emerging Public Works Radar")}</div></Reveal>
         <div className="table-wrap">
           <table>
             <thead><tr>
-              <th>Work type</th><th>Status</th>
-              <th className="num">Recent works</th><th className="num">Share change</th>
+              <th>{t("trends.workType", "Work type")}</th><th>{t("trends.status", "Status")}</th>
+              <th className="num">{t("trends.recentWorks", "Recent works")}</th><th className="num">{t("trends.shareChange", "Share change")}</th>
             </tr></thead>
             <tbody>
               {d.archetype_radar.slice(0, 12).map((a) => (
@@ -108,13 +110,13 @@ export default function Trends() {
         </div>
 
         <div className="section-title">
-          Agencies whose behaviour changed ({num(d.counts.agencies_changed)} of {num(d.counts.agencies_analysed)})
+          {t("trends.agenciesChanged", "Agencies whose behaviour changed")} ({num(d.counts.agencies_changed)} of {num(d.counts.agencies_analysed)})
         </div>
         <div className="table-wrap">
           <table>
             <thead><tr>
-              <th>Implementing agency</th><th>Status</th>
-              <th className="num">Total works</th><th>Why flagged</th>
+              <th>{t("trends.agency", "Implementing agency")}</th><th>{t("trends.status", "Status")}</th>
+              <th className="num">{t("trends.totalWorks", "Total works")}</th><th>{t("trends.whyFlagged", "Why flagged")}</th>
             </tr></thead>
             <tbody>
               {d.agency_trends.slice(0, 20).map((a) => (

@@ -4,12 +4,14 @@ import { api, num, rupees } from "../api.js";
 import { Band, Loading, Topbar } from "../components/Bits.jsx";
 import { CountUp, Reveal } from "../components/Reveal.jsx";
 import { DUPLICATE_LEVEL, prettify } from "../severity.js";
+import { useI18n } from "../I18nContext.jsx";
 
 const PAGE = 20;
 
 export default function Duplicates() {
   const [d, setD] = useState(null);
   const [page, setPage] = useState(0);
+  const { t } = useI18n();
 
   useEffect(() => {
     setD(null);
@@ -17,16 +19,16 @@ export default function Duplicates() {
       .then(setD).catch(console.error);
   }, [page]);
 
-  if (!d) return (<><Topbar title="Near-Duplicate Detection" /><div className="content"><Loading /></div></>);
+  if (!d) return (<><Topbar title={t("duplicates.title", "Near-Duplicate Detection")} /><div className="content"><Loading /></div></>);
 
   const s = d.summary || {};
   const pages = Math.ceil(d.total / PAGE);
 
   return (
     <>
-      <Topbar title="Near-Duplicate Detection"
-        sub="Semantic similarity over 384-dimensional description embeddings"
-        right={<span className="pill">{num(d.total)} concerning pairs</span>} />
+      <Topbar title={t("duplicates.title", "Near-Duplicate Detection")}
+        sub={t("duplicates.sub", "Semantic similarity over 384-dimensional description embeddings")}
+        right={<span className="pill">{num(d.total)} {t("duplicates.concerningPairs", "concerning pairs")}</span>} />
       <div className="content">
         <div className="hitl">
           <span>🔍</span>
@@ -41,32 +43,32 @@ export default function Duplicates() {
 
         <Reveal><div className="grid cols-4">
           <div className="card stat">
-            <div className="label">Candidate pairs found</div>
+            <div className="label">{t("duplicates.candidatesFound", "Candidate pairs found")}</div>
             <div className="value" style={{ fontSize: 26 }}>{num(s.total_pairs)}</div>
-            <div className="foot">across state × work-type blocks</div>
+            <div className="foot">{t("duplicates.acrossBlocks", "across state x work-type blocks")}</div>
           </div>
           <div className="card stat">
-            <div className="label">Administratively concerning</div>
+            <div className="label">{t("duplicates.concerning", "Administratively concerning")}</div>
             <div className="value accent" style={{ fontSize: 26 }}>{num(s.concerning_pairs)}</div>
-            <div className="foot">same agency + near-identical amount</div>
+            <div className="foot">{t("duplicates.sameAgencyAmount", "same agency + near-identical amount")}</div>
           </div>
           <div className="card stat">
-            <div className="label">Character-identical text</div>
+            <div className="label">{t("duplicates.identicalText", "Character-identical text")}</div>
             <div className="value" style={{ fontSize: 26 }}>{num(s.identical_text_pairs)}</div>
           </div>
           <div className="card stat">
-            <div className="label">Same implementing agency</div>
+            <div className="label">{t("duplicates.sameAgency", "Same implementing agency")}</div>
             <div className="value" style={{ fontSize: 26 }}>{num(s.same_agency_pairs)}</div>
           </div>
         </div>
 
         </Reveal>
-        <Reveal><div className="section-title">Candidate pairs</div></Reveal>
+        <Reveal><div className="section-title">{t("duplicates.candidatePairs", "Candidate pairs")}</div></Reveal>
         <div className="table-wrap">
           <table>
             <thead><tr>
-              <th>Work A</th><th>Work B</th><th>Similarity</th>
-              <th className="num">Amount</th><th>State</th>
+              <th>{t("duplicates.workA", "Work A")}</th><th>{t("duplicates.workB", "Work B")}</th><th>{t("duplicates.similarity", "Similarity")}</th>
+              <th className="num">{t("worklist.amount", "Amount")}</th><th>{t("worklist.state", "State")}</th>
             </tr></thead>
             <tbody>
               {d.items.map((p, i) => (

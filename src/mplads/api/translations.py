@@ -1105,13 +1105,211 @@ PA_EXT: dict[str, str] = {
     "case.similarity": "ਸਮਾਨਤਾ",
 }
 
+# ---------------------------------------------------------------------------------------
+# Third wave: the assistant panel. Its chrome is translated for the same reason the rest of
+# the interface is — an officer reading Tamil should not hit an English control strip the
+# moment they ask a question. The assistant's *answer* is a separate matter: it is English
+# unless a funded key is configured, and `/api/chat/capabilities` reports which.
+# ---------------------------------------------------------------------------------------
+
+CHAT_HI: dict[str, str] = {
+    "chat.assistant": "सहायक", "chat.open": "सहायक से पूछें",
+    "chat.tools": "डेटा उपकरण", "chat.live": "सक्रिय", "chat.offline": "ऑफ़लाइन",
+    "chat.connecting": "जुड़ रहा है…",
+    "chat.introLead":
+        "मैं केवल गणना किए गए परिणामों में देखकर उत्तर देता हूँ। इस डेटा का मुझे स्वतंत्र ज्ञान "
+        "नहीं है और मैं गणना नहीं कर सकता, इसलिए कोई आँकड़ा गढ़ नहीं सकता — और हर उत्तर के लिए "
+        "कौन-सा उपकरण चला, वह दिखाता हूँ।",
+    "chat.forThisScreen": "इस पृष्ठ के बारे में", "chat.orAsk": "या इनके बारे में पूछें",
+    "chat.all": "सभी", "chat.lookedUp": "देखा गया", "chat.working": "खोज रहा हूँ…",
+    "chat.placeholder": "किसी कार्य, राज्य या आँकड़े के बारे में पूछें…",
+    "chat.send": "भेजें", "chat.copy": "कॉपी", "chat.copied": "कॉपी हो गया",
+    "chat.listen": "सुनें", "chat.stop": "रोकें", "chat.export": "प्रतिलिपि निर्यात करें",
+    "chat.clear": "बातचीत मिटाएँ", "chat.expand": "बड़ा करें", "chat.restore": "पूर्ववत करें",
+    "chat.close": "बंद करें", "chat.speak": "बोलकर पूछें", "chat.stopListening": "सुनना बंद करें",
+    "chat.noVoice": "यह ब्राउज़र सुन नहीं सकता। Chrome या Edge उपयोग करें।",
+    "chat.voiceFailed": "मैं सुन नहीं पाया। फिर से बोलें, या टाइप करें।",
+    "chat.copyFailed": "ब्राउज़र ने कॉपी करने से रोक दिया।",
+    "chat.unreachable": "मैं सहायक सेवा तक नहीं पहुँच सका। जाँचें कि API पोर्ट 8000 पर चल रहा है।",
+}
+
+CHAT_BN: dict[str, str] = {
+    "chat.assistant": "সহকারী", "chat.open": "সহকারীকে জিজ্ঞাসা করুন",
+    "chat.tools": "ডেটা সরঞ্জাম", "chat.live": "সক্রিয়", "chat.offline": "অফলাইন",
+    "chat.connecting": "সংযোগ করা হচ্ছে…",
+    "chat.introLead":
+        "আমি কেবল গণনা করা ফলাফলে খুঁজে উত্তর দিই। এই তথ্য সম্পর্কে আমার স্বাধীন জ্ঞান নেই এবং "
+        "আমি হিসাব করতে পারি না, তাই কোনো সংখ্যা বানাতে পারি না — এবং প্রতিটি উত্তরের জন্য কোন "
+        "সরঞ্জাম চলেছে তা দেখাই।",
+    "chat.forThisScreen": "এই পর্দা সম্পর্কে", "chat.orAsk": "অথবা জিজ্ঞাসা করুন",
+    "chat.all": "সব", "chat.lookedUp": "খোঁজা হয়েছে", "chat.working": "খুঁজছি…",
+    "chat.placeholder": "কোনো কাজ, রাজ্য বা সংখ্যা সম্পর্কে জিজ্ঞাসা করুন…",
+    "chat.send": "পাঠান", "chat.copy": "কপি", "chat.copied": "কপি হয়েছে",
+    "chat.listen": "শুনুন", "chat.stop": "থামুন", "chat.export": "প্রতিলিপি রপ্তানি",
+    "chat.clear": "কথোপকথন মুছুন", "chat.expand": "বড় করুন", "chat.restore": "পূর্বাবস্থা",
+    "chat.close": "বন্ধ", "chat.speak": "কণ্ঠে জিজ্ঞাসা", "chat.stopListening": "শোনা বন্ধ",
+    "chat.noVoice": "এই ব্রাউজার শুনতে পারে না। Chrome বা Edge ব্যবহার করুন।",
+    "chat.voiceFailed": "আমি শুনতে পাইনি। আবার বলুন, বা টাইপ করুন।",
+    "chat.copyFailed": "ব্রাউজার কপি করতে বাধা দিয়েছে।",
+    "chat.unreachable": "সহকারী পরিষেবায় পৌঁছাতে পারিনি। API পোর্ট 8000-এ চলছে কিনা দেখুন।",
+}
+
+CHAT_TA: dict[str, str] = {
+    "chat.assistant": "உதவியாளர்", "chat.open": "உதவியாளரிடம் கேளுங்கள்",
+    "chat.tools": "தரவுக் கருவிகள்", "chat.live": "நேரலை", "chat.offline": "இணையமின்றி",
+    "chat.connecting": "இணைக்கிறது…",
+    "chat.introLead":
+        "கணக்கிடப்பட்ட முடிவுகளில் தேடி மட்டுமே பதிலளிக்கிறேன். இத்தரவு குறித்து எனக்குத் "
+        "தனித்த அறிவு இல்லை, கணக்கிடவும் முடியாது, எனவே எந்த எண்ணையும் புனைய முடியாது — "
+        "ஒவ்வொரு பதிலுக்கும் எந்தக் கருவி இயங்கியது என்பதைக் காட்டுகிறேன்.",
+    "chat.forThisScreen": "இந்தத் திரை குறித்து", "chat.orAsk": "அல்லது இவை குறித்துக் கேளுங்கள்",
+    "chat.all": "அனைத்தும்", "chat.lookedUp": "தேடப்பட்டது", "chat.working": "தேடுகிறேன்…",
+    "chat.placeholder": "ஒரு பணி, மாநிலம் அல்லது எண் குறித்துக் கேளுங்கள்…",
+    "chat.send": "அனுப்பு", "chat.copy": "நகலெடு", "chat.copied": "நகலெடுக்கப்பட்டது",
+    "chat.listen": "கேள்", "chat.stop": "நிறுத்து", "chat.export": "உரையாடலை ஏற்றுமதி செய்",
+    "chat.clear": "உரையாடலை அழி", "chat.expand": "விரிவாக்கு", "chat.restore": "மீட்டமை",
+    "chat.close": "மூடு", "chat.speak": "குரலில் கேள்", "chat.stopListening": "கேட்பதை நிறுத்து",
+    "chat.noVoice": "இந்த உலாவியால் கேட்க முடியாது. Chrome அல்லது Edge பயன்படுத்தவும்.",
+    "chat.voiceFailed": "என்னால் கேட்க முடியவில்லை. மீண்டும் சொல்லுங்கள், அல்லது தட்டச்சு செய்யுங்கள்.",
+    "chat.copyFailed": "உலாவி நகலெடுப்பதைத் தடுத்தது.",
+    "chat.unreachable": "உதவியாளர் சேவையை அடைய முடியவில்லை. API போர்ட் 8000-இல் இயங்குகிறதா எனப் பாருங்கள்.",
+}
+
+CHAT_TE: dict[str, str] = {
+    "chat.assistant": "సహాయకుడు", "chat.open": "సహాయకుడిని అడగండి",
+    "chat.tools": "డేటా సాధనాలు", "chat.live": "ప్రత్యక్షం", "chat.offline": "ఆఫ్‌లైన్",
+    "chat.connecting": "కలుపుతోంది…",
+    "chat.introLead":
+        "నేను గణించిన ఫలితాలలో వెతికి మాత్రమే సమాధానం ఇస్తాను. ఈ డేటా గురించి నాకు స్వతంత్ర "
+        "జ్ఞానం లేదు, లెక్కించలేను, కాబట్టి ఏ సంఖ్యనూ కల్పించలేను — ప్రతి సమాధానానికి ఏ సాధనం "
+        "పనిచేసిందో చూపిస్తాను.",
+    "chat.forThisScreen": "ఈ తెర గురించి", "chat.orAsk": "లేదా వీటి గురించి అడగండి",
+    "chat.all": "అన్నీ", "chat.lookedUp": "వెతికినవి", "chat.working": "వెతుకుతున్నాను…",
+    "chat.placeholder": "ఒక పని, రాష్ట్రం లేదా సంఖ్య గురించి అడగండి…",
+    "chat.send": "పంపు", "chat.copy": "కాపీ", "chat.copied": "కాపీ అయింది",
+    "chat.listen": "వినండి", "chat.stop": "ఆపు", "chat.export": "సంభాషణ ఎగుమతి",
+    "chat.clear": "సంభాషణ తొలగించు", "chat.expand": "విస్తరించు", "chat.restore": "పునరుద్ధరించు",
+    "chat.close": "మూసివేయి", "chat.speak": "గొంతుతో అడగండి", "chat.stopListening": "వినడం ఆపు",
+    "chat.noVoice": "ఈ బ్రౌజర్ వినలేదు. Chrome లేదా Edge వాడండి.",
+    "chat.voiceFailed": "నేను వినలేకపోయాను. మళ్లీ చెప్పండి, లేదా టైప్ చేయండి.",
+    "chat.copyFailed": "బ్రౌజర్ కాపీ చేయడాన్ని అడ్డుకుంది.",
+    "chat.unreachable": "సహాయక సేవను చేరుకోలేకపోయాను. API పోర్ట్ 8000లో నడుస్తోందో చూడండి.",
+}
+
+CHAT_MR: dict[str, str] = {
+    "chat.assistant": "सहायक", "chat.open": "सहाय्यकाला विचारा",
+    "chat.tools": "डेटा साधने", "chat.live": "थेट", "chat.offline": "ऑफलाइन",
+    "chat.connecting": "जोडत आहे…",
+    "chat.introLead":
+        "मी फक्त गणना केलेल्या निकालांमध्ये पाहून उत्तर देतो. या डेटाबद्दल मला स्वतंत्र माहिती "
+        "नाही आणि मी गणित करू शकत नाही, त्यामुळे कोणताही आकडा रचू शकत नाही — आणि प्रत्येक "
+        "उत्तरासाठी कोणते साधन चालले ते दाखवतो.",
+    "chat.forThisScreen": "या पडद्याबद्दल", "chat.orAsk": "किंवा याबद्दल विचारा",
+    "chat.all": "सर्व", "chat.lookedUp": "शोधले", "chat.working": "शोधत आहे…",
+    "chat.placeholder": "एखादे काम, राज्य किंवा आकड्याबद्दल विचारा…",
+    "chat.send": "पाठवा", "chat.copy": "कॉपी", "chat.copied": "कॉपी झाले",
+    "chat.listen": "ऐका", "chat.stop": "थांबा", "chat.export": "संवाद निर्यात करा",
+    "chat.clear": "संवाद पुसा", "chat.expand": "मोठे करा", "chat.restore": "पूर्ववत करा",
+    "chat.close": "बंद करा", "chat.speak": "बोलून विचारा", "chat.stopListening": "ऐकणे थांबवा",
+    "chat.noVoice": "हा ब्राउझर ऐकू शकत नाही. Chrome किंवा Edge वापरा.",
+    "chat.voiceFailed": "मला ऐकू आले नाही. पुन्हा बोला, किंवा टाइप करा.",
+    "chat.copyFailed": "ब्राउझरने कॉपी करण्यास मनाई केली.",
+    "chat.unreachable": "मी सहाय्यक सेवेपर्यंत पोहोचू शकलो नाही. API पोर्ट 8000 वर चालू आहे का तपासा.",
+}
+
+CHAT_GU: dict[str, str] = {
+    "chat.assistant": "સહાયક", "chat.open": "સહાયકને પૂછો",
+    "chat.tools": "ડેટા સાધનો", "chat.live": "જીવંત", "chat.offline": "ઑફલાઇન",
+    "chat.connecting": "જોડાઈ રહ્યું છે…",
+    "chat.introLead":
+        "હું ફક્ત ગણતરી કરેલા પરિણામોમાં જોઈને જવાબ આપું છું. આ ડેટા વિશે મને સ્વતંત્ર જ્ઞાન "
+        "નથી અને હું ગણતરી કરી શકતો નથી, તેથી કોઈ આંકડો ઘડી શકતો નથી — અને દરેક જવાબ માટે "
+        "કયું સાધન ચાલ્યું તે બતાવું છું.",
+    "chat.forThisScreen": "આ સ્ક્રીન વિશે", "chat.orAsk": "અથવા આ વિશે પૂછો",
+    "chat.all": "બધું", "chat.lookedUp": "શોધ્યું", "chat.working": "શોધી રહ્યો છું…",
+    "chat.placeholder": "કોઈ કામ, રાજ્ય કે આંકડા વિશે પૂછો…",
+    "chat.send": "મોકલો", "chat.copy": "કૉપી", "chat.copied": "કૉપી થયું",
+    "chat.listen": "સાંભળો", "chat.stop": "રોકો", "chat.export": "વાતચીત નિકાસ કરો",
+    "chat.clear": "વાતચીત ભૂંસો", "chat.expand": "મોટું કરો", "chat.restore": "પુનઃસ્થાપિત કરો",
+    "chat.close": "બંધ કરો", "chat.speak": "બોલીને પૂછો", "chat.stopListening": "સાંભળવાનું બંધ",
+    "chat.noVoice": "આ બ્રાઉઝર સાંભળી શકતું નથી. Chrome કે Edge વાપરો.",
+    "chat.voiceFailed": "હું સાંભળી શક્યો નહીં. ફરી બોલો, અથવા ટાઇપ કરો.",
+    "chat.copyFailed": "બ્રાઉઝરે કૉપી કરવાનું અટકાવ્યું.",
+    "chat.unreachable": "હું સહાયક સેવા સુધી પહોંચી શક્યો નહીં. API પોર્ટ 8000 પર ચાલે છે કે તપાસો.",
+}
+
+CHAT_KN: dict[str, str] = {
+    "chat.assistant": "ಸಹಾಯಕ", "chat.open": "ಸಹಾಯಕರನ್ನು ಕೇಳಿ",
+    "chat.tools": "ದತ್ತಾಂಶ ಸಾಧನಗಳು", "chat.live": "ನೇರ", "chat.offline": "ಆಫ್‌ಲೈನ್",
+    "chat.connecting": "ಸಂಪರ್ಕಿಸುತ್ತಿದೆ…",
+    "chat.introLead":
+        "ನಾನು ಲೆಕ್ಕಹಾಕಿದ ಫಲಿತಾಂಶಗಳಲ್ಲಿ ಹುಡುಕಿ ಮಾತ್ರ ಉತ್ತರಿಸುತ್ತೇನೆ. ಈ ದತ್ತಾಂಶದ ಬಗ್ಗೆ ನನಗೆ "
+        "ಸ್ವತಂತ್ರ ಜ್ಞಾನವಿಲ್ಲ ಮತ್ತು ಲೆಕ್ಕ ಮಾಡಲಾರೆ, ಆದ್ದರಿಂದ ಯಾವ ಅಂಕಿಯನ್ನೂ ಕಲ್ಪಿಸಲಾರೆ — ಪ್ರತಿ "
+        "ಉತ್ತರಕ್ಕೆ ಯಾವ ಸಾಧನ ಚಲಿಸಿತು ಎಂದು ತೋರಿಸುತ್ತೇನೆ.",
+    "chat.forThisScreen": "ಈ ಪರದೆಯ ಬಗ್ಗೆ", "chat.orAsk": "ಅಥವಾ ಇವುಗಳ ಬಗ್ಗೆ ಕೇಳಿ",
+    "chat.all": "ಎಲ್ಲಾ", "chat.lookedUp": "ಹುಡುಕಲಾಗಿದೆ", "chat.working": "ಹುಡುಕುತ್ತಿದ್ದೇನೆ…",
+    "chat.placeholder": "ಒಂದು ಕೆಲಸ, ರಾಜ್ಯ ಅಥವಾ ಸಂಖ್ಯೆಯ ಬಗ್ಗೆ ಕೇಳಿ…",
+    "chat.send": "ಕಳುಹಿಸಿ", "chat.copy": "ನಕಲಿಸಿ", "chat.copied": "ನಕಲಾಗಿದೆ",
+    "chat.listen": "ಕೇಳಿ", "chat.stop": "ನಿಲ್ಲಿಸಿ", "chat.export": "ಸಂಭಾಷಣೆ ರಫ್ತು",
+    "chat.clear": "ಸಂಭಾಷಣೆ ಅಳಿಸಿ", "chat.expand": "ವಿಸ್ತರಿಸಿ", "chat.restore": "ಮರುಸ್ಥಾಪಿಸಿ",
+    "chat.close": "ಮುಚ್ಚಿ", "chat.speak": "ಧ್ವನಿಯಲ್ಲಿ ಕೇಳಿ", "chat.stopListening": "ಕೇಳುವುದನ್ನು ನಿಲ್ಲಿಸಿ",
+    "chat.noVoice": "ಈ ಬ್ರೌಸರ್ ಕೇಳಲಾರದು. Chrome ಅಥವಾ Edge ಬಳಸಿ.",
+    "chat.voiceFailed": "ನನಗೆ ಕೇಳಿಸಲಿಲ್ಲ. ಮತ್ತೆ ಹೇಳಿ, ಅಥವಾ ಟೈಪ್ ಮಾಡಿ.",
+    "chat.copyFailed": "ಬ್ರೌಸರ್ ನಕಲಿಸುವುದನ್ನು ತಡೆಯಿತು.",
+    "chat.unreachable": "ಸಹಾಯಕ ಸೇವೆಯನ್ನು ತಲುಪಲಾಗಲಿಲ್ಲ. API ಪೋರ್ಟ್ 8000ರಲ್ಲಿ ಚಲಿಸುತ್ತಿದೆಯೇ ನೋಡಿ.",
+}
+
+CHAT_ML: dict[str, str] = {
+    "chat.assistant": "സഹായി", "chat.open": "സഹായിയോട് ചോദിക്കുക",
+    "chat.tools": "ഡാറ്റ ഉപകരണങ്ങൾ", "chat.live": "തത്സമയം", "chat.offline": "ഓഫ്‌ലൈൻ",
+    "chat.connecting": "ബന്ധിപ്പിക്കുന്നു…",
+    "chat.introLead":
+        "കണക്കാക്കിയ ഫലങ്ങളിൽ തിരഞ്ഞ് മാത്രമേ ഞാൻ ഉത്തരം നൽകൂ. ഈ ഡാറ്റയെക്കുറിച്ച് എനിക്ക് "
+        "സ്വതന്ത്ര അറിവില്ല, കണക്കുകൂട്ടാനും കഴിയില്ല, അതിനാൽ ഒരു സംഖ്യയും കെട്ടിച്ചമയ്ക്കാനാവില്ല — "
+        "ഓരോ ഉത്തരത്തിനും ഏത് ഉപകരണം പ്രവർത്തിച്ചു എന്ന് കാണിക്കും.",
+    "chat.forThisScreen": "ഈ സ്ക്രീനിനെക്കുറിച്ച്", "chat.orAsk": "അല്ലെങ്കിൽ ഇവയെക്കുറിച്ച് ചോദിക്കുക",
+    "chat.all": "എല്ലാം", "chat.lookedUp": "തിരഞ്ഞത്", "chat.working": "തിരയുന്നു…",
+    "chat.placeholder": "ഒരു പ്രവൃത്തി, സംസ്ഥാനം അല്ലെങ്കിൽ സംഖ്യയെക്കുറിച്ച് ചോദിക്കുക…",
+    "chat.send": "അയയ്ക്കുക", "chat.copy": "പകർത്തുക", "chat.copied": "പകർത്തി",
+    "chat.listen": "കേൾക്കുക", "chat.stop": "നിർത്തുക", "chat.export": "സംഭാഷണം കയറ്റുമതി",
+    "chat.clear": "സംഭാഷണം മായ്ക്കുക", "chat.expand": "വലുതാക്കുക", "chat.restore": "പുനഃസ്ഥാപിക്കുക",
+    "chat.close": "അടയ്ക്കുക", "chat.speak": "ശബ്ദത്തിൽ ചോദിക്കുക", "chat.stopListening": "കേൾക്കൽ നിർത്തുക",
+    "chat.noVoice": "ഈ ബ്രൗസറിന് കേൾക്കാനാവില്ല. Chrome അല്ലെങ്കിൽ Edge ഉപയോഗിക്കുക.",
+    "chat.voiceFailed": "എനിക്ക് കേൾക്കാനായില്ല. വീണ്ടും പറയുക, അല്ലെങ്കിൽ ടൈപ്പ് ചെയ്യുക.",
+    "chat.copyFailed": "ബ്രൗസർ പകർത്തുന്നത് തടഞ്ഞു.",
+    "chat.unreachable": "സഹായി സേവനത്തിൽ എത്താനായില്ല. API പോർട്ട് 8000-ൽ പ്രവർത്തിക്കുന്നുണ്ടോ എന്ന് നോക്കുക.",
+}
+
+CHAT_PA: dict[str, str] = {
+    "chat.assistant": "ਸਹਾਇਕ", "chat.open": "ਸਹਾਇਕ ਨੂੰ ਪੁੱਛੋ",
+    "chat.tools": "ਡਾਟਾ ਸੰਦ", "chat.live": "ਸਿੱਧਾ", "chat.offline": "ਔਫ਼ਲਾਈਨ",
+    "chat.connecting": "ਜੁੜ ਰਿਹਾ ਹੈ…",
+    "chat.introLead":
+        "ਮੈਂ ਸਿਰਫ਼ ਗਿਣੇ ਹੋਏ ਨਤੀਜਿਆਂ ਵਿੱਚ ਵੇਖ ਕੇ ਜਵਾਬ ਦਿੰਦਾ ਹਾਂ। ਇਸ ਡਾਟੇ ਬਾਰੇ ਮੈਨੂੰ ਸੁਤੰਤਰ ਜਾਣਕਾਰੀ "
+        "ਨਹੀਂ ਹੈ ਅਤੇ ਮੈਂ ਹਿਸਾਬ ਨਹੀਂ ਕਰ ਸਕਦਾ, ਇਸ ਲਈ ਕੋਈ ਅੰਕੜਾ ਘੜ ਨਹੀਂ ਸਕਦਾ — ਅਤੇ ਹਰ ਜਵਾਬ ਲਈ "
+        "ਕਿਹੜਾ ਸੰਦ ਚੱਲਿਆ, ਉਹ ਵਿਖਾਉਂਦਾ ਹਾਂ।",
+    "chat.forThisScreen": "ਇਸ ਸਕਰੀਨ ਬਾਰੇ", "chat.orAsk": "ਜਾਂ ਇਹਨਾਂ ਬਾਰੇ ਪੁੱਛੋ",
+    "chat.all": "ਸਭ", "chat.lookedUp": "ਲੱਭਿਆ", "chat.working": "ਲੱਭ ਰਿਹਾ ਹਾਂ…",
+    "chat.placeholder": "ਕਿਸੇ ਕੰਮ, ਰਾਜ ਜਾਂ ਅੰਕੜੇ ਬਾਰੇ ਪੁੱਛੋ…",
+    "chat.send": "ਭੇਜੋ", "chat.copy": "ਕਾਪੀ", "chat.copied": "ਕਾਪੀ ਹੋਇਆ",
+    "chat.listen": "ਸੁਣੋ", "chat.stop": "ਰੋਕੋ", "chat.export": "ਗੱਲਬਾਤ ਨਿਰਯਾਤ ਕਰੋ",
+    "chat.clear": "ਗੱਲਬਾਤ ਮਿਟਾਓ", "chat.expand": "ਵੱਡਾ ਕਰੋ", "chat.restore": "ਬਹਾਲ ਕਰੋ",
+    "chat.close": "ਬੰਦ ਕਰੋ", "chat.speak": "ਬੋਲ ਕੇ ਪੁੱਛੋ", "chat.stopListening": "ਸੁਣਨਾ ਬੰਦ ਕਰੋ",
+    "chat.noVoice": "ਇਹ ਬਰਾਊਜ਼ਰ ਸੁਣ ਨਹੀਂ ਸਕਦਾ। Chrome ਜਾਂ Edge ਵਰਤੋ।",
+    "chat.voiceFailed": "ਮੈਂ ਸੁਣ ਨਹੀਂ ਸਕਿਆ। ਦੁਬਾਰਾ ਬੋਲੋ, ਜਾਂ ਟਾਈਪ ਕਰੋ।",
+    "chat.copyFailed": "ਬਰਾਊਜ਼ਰ ਨੇ ਕਾਪੀ ਕਰਨ ਤੋਂ ਰੋਕ ਦਿੱਤਾ।",
+    "chat.unreachable": "ਮੈਂ ਸਹਾਇਕ ਸੇਵਾ ਤੱਕ ਨਹੀਂ ਪਹੁੰਚ ਸਕਿਆ। ਜਾਂਚੋ ਕਿ API ਪੋਰਟ 8000 'ਤੇ ਚੱਲ ਰਿਹਾ ਹੈ।",
+}
+
 # Merge the second wave into the original bundles, so there is still exactly one dict per
 # language and `coverage()` reports one honest number for it.
-for _base, _ext in (
-    (HI, HI_EXT), (BN, BN_EXT), (TA, TA_EXT), (TE, TE_EXT), (MR, MR_EXT),
-    (GU, GU_EXT), (KN, KN_EXT), (ML, ML_EXT), (PA, PA_EXT),
+for _base, *_exts in (
+    (HI, HI_EXT, CHAT_HI), (BN, BN_EXT, CHAT_BN), (TA, TA_EXT, CHAT_TA),
+    (TE, TE_EXT, CHAT_TE), (MR, MR_EXT, CHAT_MR), (GU, GU_EXT, CHAT_GU),
+    (KN, KN_EXT, CHAT_KN), (ML, ML_EXT, CHAT_ML), (PA, PA_EXT, CHAT_PA),
 ):
-    _base.update(_ext)
+    for _ext in _exts:
+        _base.update(_ext)
 
 
 #: language code -> (English name, native name, bundle)

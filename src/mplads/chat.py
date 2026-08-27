@@ -465,6 +465,45 @@ def t_data_limitations() -> str:
     })
 
 
+def t_salesforce_summary() -> str:
+    """Status of Salesforce CRM, the 5-stage Path, deployed reports, and Agentforce."""
+    from mplads import salesforce as sf
+    return json.dumps(sf.get_salesforce_overview())
+
+
+def t_salesforce_case_lookup(work_ref: str = "") -> str:
+    """Look up a case's live Salesforce CRM casework state and 5-stage Path progress.
+
+    Args:
+        work_ref: The work reference, e.g. "MP3018356-W86316".
+    """
+    from mplads import salesforce as sf
+    cases = sf.load_salesforce_cases()
+    if not work_ref and cases:
+        work_ref = cases[0]["work_ref"]
+    match = next((c for c in cases if c["work_ref"] == work_ref.upper()), None)
+    if not match:
+        return json.dumps({"found": False, "note": f"{work_ref} is not in the top 500 Salesforce cases."})
+    evidence = sf.load_salesforce_evidence(work_ref)
+    return json.dumps({
+        "found": True,
+        "case": match,
+        "evidence": evidence,
+        "path_guidance": next((s["guidance"] for s in sf.PATH_STAGES if s["stage"] == match["investigation_status"]), ""),
+    })
+
+
+def t_agentforce_investigation_lookup(query: str = "") -> str:
+    """Query Agentforce across all 210,993 works, Salesforce cases, states, and tiers.
+
+    Args:
+        query: Investigation question, state, tier, or work reference.
+    """
+    from mplads import salesforce as sf
+    res = sf.query_agentforce(query or "overview")
+    return json.dumps(res)
+
+
 TOOL_FUNCS = {
     "t_portfolio_summary": t_portfolio_summary,
     "t_top_leads": t_top_leads,
@@ -481,6 +520,9 @@ TOOL_FUNCS = {
     "t_archetype_list": t_archetype_list,
     "t_model_metrics": t_model_metrics,
     "t_data_limitations": t_data_limitations,
+    "t_salesforce_summary": t_salesforce_summary,
+    "t_salesforce_case_lookup": t_salesforce_case_lookup,
+    "t_agentforce_investigation_lookup": t_agentforce_investigation_lookup,
 }
 
 
@@ -574,6 +616,44 @@ def answer_offline(question: str) -> dict:
     ref = WORK_REF.search(question)
     if ref:
         return _answer_work(ref.group(0).upper())
+
+    # --- Salesforce & Agentforce casework queries
+    if has("salesforce", "crm", "sales force"):
+        from mplads import salesforce as sf
+        overview = sf.get_salesforce_overview()
+        org = overview["org"]
+        obj = overview["objects"]["Investigation_Case__c"]
+        return _said(
+            f"Salesforce CRM is live (Org ID {org['org_id']}, {org['status']}). It holds "
+            f"{obj['records_loaded']} HIGH-priority investigation cases representing "
+            f"{_fmt_rupees(obj['total_exposure_rupees'])} of exposure, with "
+            f"{overview['objects']['Evidence__c']['records_loaded']:,} linked evidence items, a "
+            f"5-stage investigation Path, 3 custom reports and an executive dashboard.",
+            "t_salesforce_summary")
+
+    if has("agentforce", "agent force", "investigation lookup"):
+        from mplads import salesforce as sf
+        result = sf.query_agentforce(question)
+        return _said(result["answer"], "t_salesforce_summary")
+
+    if has("path", "stage", "investigation status", "5-stage"):
+        from mplads import salesforce as sf
+        stages_str = " → ".join(s["label"] for s in sf.PATH_STAGES)
+        last_guidance = sf.PATH_STAGES[-1]["guidance"]
+        return _said(
+            f"The Salesforce 5-stage Path is: {stages_str}. Each stage carries actionable "
+            f"officer guidance. Stage 5 (Closed) records the ground truth: '{last_guidance}'",
+            "t_salesforce_summary")
+
+    if has("escalation tier", "ministry review", "state nodal", "district monitoring"):
+        from mplads import salesforce as sf
+        overview = sf.get_salesforce_overview()
+        tiers = overview["escalation_tiers"]
+        return _said(
+            f"Salesforce cases are partitioned across three governance tiers: "
+            f"{tiers['District Monitoring']} in District Monitoring, {tiers['State Nodal']} "
+            f"in State Nodal, and {tiers['Ministry Review']} in Ministry Review.",
+            "t_salesforce_summary")
 
     # --- what officers found in the field, read live
     if has("verification", "verified", "site visit", "field", "ground truth", "officer found"):

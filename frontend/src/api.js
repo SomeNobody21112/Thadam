@@ -44,6 +44,10 @@ export const api = {
       body: JSON.stringify(body),
     }).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }),
   fieldSummary: () => get("/api/field/summary"),
+  auditPlan: (budgetDays) => get(`/api/audit-plan?budget_days=${budgetDays}`),
+  // The report opens in a tab rather than downloading through fetch: the browser renders
+  // a PDF natively, and an officer usually wants to read it before deciding to keep it.
+  caseReportUrl: (ref) => `/api/case/${encodeURIComponent(ref)}/report.pdf`,
   languages: () => get("/api/languages"),
   chatCapabilities: () => get("/api/chat/capabilities"),
   chat: (body) =>
@@ -83,6 +87,32 @@ export const api = {
     return get(`/api/worklist?${q}`);
   },
   case: (ref) => get(`/api/case/${encodeURIComponent(ref)}`),
+  salesforceOverview: () => get("/api/salesforce/overview"),
+  salesforceCases: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== "" && v != null)
+    ).toString();
+    return get(`/api/salesforce/cases?${q}`);
+  },
+  salesforceCase: (ref) => get(`/api/salesforce/case/${encodeURIComponent(ref)}`),
+  updateSalesforceStage: (body) =>
+    fetch("/api/salesforce/update-stage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    }),
+  agentforceQuery: (question) =>
+    fetch("/api/agentforce/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ question }),
+    }).then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    }),
 };
 
 /**

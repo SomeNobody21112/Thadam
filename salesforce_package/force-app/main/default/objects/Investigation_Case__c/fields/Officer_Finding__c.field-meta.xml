@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Officer_Finding__c</fullName>
+    <label>Officer Finding</label>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+                <value>
+                    <fullName>Verified Complete</fullName>
+                    <default>false</default>
+                    <label>Verified Complete</label>
+                </value>
+                <value>
+                    <fullName>Verified In Progress</fullName>
+                    <default>false</default>
+                    <label>Verified In Progress</label>
+                </value>
+                <value>
+                    <fullName>Not Started</fullName>
+                    <default>false</default>
+                    <label>Not Started</label>
+                </value>
+                <value>
+                    <fullName>Not Found</fullName>
+                    <default>false</default>
+                    <label>Not Found</label>
+                </value>
+                <value>
+                    <fullName>Record Mismatch</fullName>
+                    <default>false</default>
+                    <label>Record Mismatch</label>
+                </value>
+                <value>
+                    <fullName>No Access</fullName>
+                    <default>false</default>
+                    <label>No Access</label>
+                </value>
+                <value>
+                    <fullName>False Positive</fullName>
+                    <default>false</default>
+                    <label>False Positive</label>
+                </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

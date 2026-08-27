@@ -20,10 +20,11 @@ from pathlib import Path
 
 import pandas as pd
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+from mplads import casereport
 from mplads import chat as chatbot
 from mplads import field, ocr
 from mplads import config, llm
@@ -31,6 +32,7 @@ from mplads.api import auth
 from mplads.api.strings import UI
 from mplads.api import translations
 from mplads.api.audit import AuditLog
+from mplads.intelligence import targeting
 from mplads.api.auth import Principal, current_principal
 
 LOGGER = logging.getLogger(__name__)
@@ -111,12 +113,21 @@ class Store:
         )
         self._artifacts = artifacts
         self._corpus: pd.DataFrame | None = None
+        self._plan_frame: pd.DataFrame | None = None
         self._all_refs: set[str] | None = None
         self._amounts: dict[str, float] | None = None
 
     #: The columns the assistant and the photo matcher need. Everything else in
     #: works_scored stays on disk — the full 82-column frame is 547 MB in memory and
     #: none of the rest is ever asked for.
+    #: Columns the audit planner needs. Loaded separately from the chat corpus because it
+    #: is a different question — the planner cares about money and travel, not description
+    #: text, and pulling the 31 MB of descriptions to sort by exposure is waste.
+    PLAN_COLUMNS = [
+        "work_ref", "implementing_agency", "rs_exposure", "state_name",
+        "audit_roi", "priority", "band", "recommended_amount",
+    ]
+
     CORPUS_COLUMNS = [
         "work_ref", "state_name", "constituency", "implementing_agency", "mp_name",
         "house", "work_description", "activity_category", "archetype_label",
@@ -148,6 +159,19 @@ class Store:
                 self._corpus = frame
                 LOGGER.info("corpus loaded: %s works", f"{len(frame):,}")
         return self._corpus
+
+    @property
+    def plan_frame(self) -> pd.DataFrame:
+        """The lean frame the audit planner runs on, loaded once and held."""
+        if self._plan_frame is None:
+            path = self._artifacts / "works_scored.parquet"
+            if not path.exists():
+                self._plan_frame = pd.DataFrame(columns=self.PLAN_COLUMNS)
+            else:
+                self._plan_frame = pd.read_parquet(path, columns=self.PLAN_COLUMNS)
+                LOGGER.info("audit planner frame loaded: %s works",
+                            f"{len(self._plan_frame):,}")
+        return self._plan_frame
 
     @property
     def all_refs(self) -> set[str]:
@@ -460,7 +484,129 @@ def chat_capabilities() -> dict:
             "Can you detect cost overruns?",
             "What models did you train?",
         ],
+        # Grouped starters, so the panel opens on something an evaluator would
+        # actually ask rather than a blank box. Every one of these is answerable by
+        # the offline router, so they work with or without billing.
+        "categories": [
+            {
+                "category": "Portfolio & scale",
+                "icon": "▤",
+                "prompts": [
+                    "How many works and leads are in the national portfolio?",
+                    "What does exposure at risk mean?",
+                    "What is the health index?",
+                ],
+            },
+            {
+                "category": "Leads & ranking",
+                "icon": "▦",
+                "prompts": [
+                    "Show me the top leads",
+                    "How are leads ranked?",
+                    "What does HIGH confidence mean?",
+                ],
+            },
+            {
+                "category": "States & agencies",
+                "icon": "§",
+                "prompts": [
+                    "How many works in Bihar?",
+                    "Which agencies changed behaviour?",
+                    "Tell me about MP3018356-W86316",
+                ],
+            },
+            {
+                "category": "Method & limits",
+                "icon": "◈",
+                "prompts": [
+                    "What models did you train?",
+                    "What work types did you discover?",
+                    "Can you detect cost overruns?",
+                ],
+            },
+            {
+                "category": "Salesforce & Agentforce",
+                "icon": "⚡",
+                "prompts": [
+                    "Show me HIGH priority cases in Bihar",
+                    "What cases are loaded in Salesforce CRM?",
+                    "What is the 5-stage investigation path?",
+                    "Which case has the highest exposure?",
+                ],
+            },
+        ],
+        # The languages the *interface* is translated into. The written answer is
+        # English unless a funded key is configured, and `answers_translated` says
+        # which of those two is true rather than letting the picker imply the first.
+        "languages": {code: name for code, (name, _, _) in translations.BUNDLES.items()},
+        "native": {code: native for code, (_, native, _) in translations.BUNDLES.items()},
+        "answers_translated": llm.available(),
     }
+
+
+# --------------------------------------------------------- audit plan & case report
+
+
+@app.get("/api/audit-plan")
+def audit_plan(budget_days: float = Query(targeting.DEFAULT_BUDGET, ge=1, le=1000),
+               principal: Principal = Depends(current_principal)) -> dict:
+    """A budgeted investigation plan, and what the alternatives would have covered.
+
+    Ranking answers "what is worst?". This answers "where do I send twenty auditor-days?",
+    which is a different question because cases do not cost the same to check — five works
+    at one district office are one trip.
+    """
+    frame = store().plan_frame
+    if frame.empty:
+        raise HTTPException(503, "no scored works available; run the pipeline first")
+
+    # A scoped officer plans their own jurisdiction, not the country.
+    if not principal.unrestricted:
+        column = auth.ROLE_SCOPE.get(principal.role)
+        mapped = {"state": "state_name", "implementing_agency": "implementing_agency",
+                  "constituency": "constituency"}.get(column)
+        if mapped and mapped in frame.columns and principal.scope:
+            frame = frame[frame[mapped] == principal.scope]
+        if frame.empty:
+            raise HTTPException(404, f"no works within {principal.scope}")
+
+    return targeting.build(frame, budget_days=budget_days)
+
+
+@app.get("/api/case/{work_ref}/report.pdf")
+def case_report(work_ref: str,
+                principal: Principal = Depends(current_principal)):
+    """The case file as a document an officer can take to a site visit.
+
+    Served as a real PDF rather than a print stylesheet because it leaves the browser: it
+    gets emailed, filed and read months later by someone who never saw the screen. The
+    non-fraud contract is stamped on every page for exactly that reason.
+    """
+    found = store().cases_by_ref.get(work_ref) or _clear_record(work_ref)
+    if not found:
+        raise HTTPException(404, "no such work in this portfolio")
+
+    identity = found["identity"]
+    auth.require_scope(
+        principal,
+        {"state": identity.get("state"),
+         "implementing_agency": identity.get("implementing_agency"),
+         "constituency": identity.get("constituency")},
+        f"case file {work_ref}",
+    )
+
+    try:
+        verifications = field.for_work(work_ref)
+    except Exception:            # a missing store must not block the document
+        verifications = []
+
+    pdf = casereport.build(found, verifications)
+    filename = f"MPLADS-case-{work_ref}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+    )
 
 
 # ------------------------------------------------- login, OCR, field verification
@@ -683,3 +829,125 @@ def duplicate_pairs(
         "items": json.loads(page.to_json(orient="records")),
         "summary": summary,
     }
+
+
+# -------------------------------------------------- Salesforce CRM & Agentforce
+
+
+class UpdateStageRequest(BaseModel):
+    work_ref: str
+    stage: str
+    officer_finding: str = ""
+    target_review_date: str = ""
+    #: What the officer saw. Carried into the verification record, because a finding with
+    #: no account of what was found is a checkbox, not evidence.
+    notes: str = ""
+
+
+class AgentforceQueryRequest(BaseModel):
+    question: str
+
+
+@app.get("/api/salesforce/overview")
+def salesforce_overview() -> dict:
+    """Salesforce Org status, custom objects, 5-stage Path, reports and dashboards."""
+    from mplads import salesforce as sf
+    return sf.get_salesforce_overview()
+
+
+@app.get("/api/salesforce/cases")
+def salesforce_cases(
+    stage: str | None = None,
+    state: str | None = None,
+    tier: str | None = None,
+    q: str | None = None,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """The 500 High-Priority Investigation Cases in Salesforce CRM."""
+    from mplads import salesforce as sf
+    cases = sf.load_salesforce_cases()
+    if stage:
+        cases = [c for c in cases if c["investigation_status"] == stage]
+    if state:
+        cases = [c for c in cases if (c["state"] or "").lower() == state.lower()]
+    if tier:
+        cases = [c for c in cases if c["escalation_tier"] == tier]
+    if q:
+        needle = q.lower()
+        cases = [
+            c for c in cases
+            if needle in (c["work_ref"] or "").lower()
+            or needle in (c["description"] or "").lower()
+            or needle in (c["implementing_agency"] or "").lower()
+            or needle in (c["state"] or "").lower()
+        ]
+    return {
+        "total": len(cases),
+        "items": cases[offset : offset + limit],
+        "stages": sf.PATH_STAGES,
+        "findings": sf.OFFICER_FINDINGS,
+    }
+
+
+@app.get("/api/salesforce/case/{work_ref}")
+def salesforce_case(work_ref: str) -> dict:
+    """Get single Salesforce Investigation Case with evidence and Path stage info."""
+    from mplads import salesforce as sf
+    cases = sf.load_salesforce_cases()
+    match = next((c for c in cases if c["work_ref"] == work_ref.upper()), None)
+    if not match:
+        raise HTTPException(404, f"case {work_ref} not found in Salesforce CRM")
+    evidence = sf.load_salesforce_evidence(work_ref)
+    return {
+        "case": match,
+        "evidence": evidence,
+        "stages": sf.PATH_STAGES,
+        "current_stage": match["investigation_status"],
+        "guidance": next((s["guidance"] for s in sf.PATH_STAGES if s["stage"] == match["investigation_status"]), ""),
+        "findings": sf.OFFICER_FINDINGS,
+    }
+
+
+@app.post("/api/salesforce/update-stage")
+def update_salesforce_stage(
+    req: UpdateStageRequest,
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    """Update case investigation stage and officer findings."""
+    from mplads import salesforce as sf
+    try:
+        # A stage move is workflow and anyone may do it. Recording what an officer found
+        # is evidence, so it carries their name — salesforce.update_case_stage refuses an
+        # unattributed one rather than writing "anonymous" into the label set.
+        if req.officer_finding:
+            auth.require_identity(principal, "record an officer finding")
+        res = sf.update_case_stage(
+            work_ref=req.work_ref.upper(),
+            stage=req.stage,
+            officer_finding=req.officer_finding,
+            review_date=req.target_review_date,
+            notes=getattr(req, "notes", "") or "",
+            actor=principal.subject,
+            role=principal.role,
+        )
+        audit().record(
+            actor=getattr(principal, "subject", "officer"),
+            role=getattr(principal, "role", "auditor"),
+            action="UPDATE_STAGE",
+            resource=f"/api/salesforce/case/{req.work_ref.upper()}",
+            detail={"stage": req.stage, "finding": req.officer_finding},
+        )
+        return res
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/agentforce/query")
+def agentforce_query(req: AgentforceQueryRequest) -> dict:
+    """Direct query against Agentforce Investigation Lookup agent."""
+    from mplads import salesforce as sf
+    if not req.question.strip():
+        raise HTTPException(400, "question is required")
+    return sf.query_agentforce(req.question.strip())
+

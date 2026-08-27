@@ -55,8 +55,10 @@ Product constraints, not style preferences. They must survive into code and UI c
 | Compliance-flagged works | 5,946 |
 | Agencies changed | 73 of 697 |
 | Health Index | 62.9 / 100 |
+| Audit plan @ 50 auditor-days | **100 works / 23 agency visits / ₹47.1 Cr** covered |
+| Same budget, ranking top-down | 74 works / 37 visits / ₹42.4 Cr (90%) |
 | Synthetic validation | **69.2%** overall detection (stalled 96.1%, inflated 83.2%, break 58.0%, cloned 50.0%) |
-| Tests | **186 passing**, 2 skipped |
+| Tests | **210 passing**, 2 skipped |
 
 ## Stack & layout
 
@@ -74,11 +76,14 @@ src/mplads/
   validation/synthetic.py   plant known anomalies, measure detection
   llm.py               Claude briefings + translation, template fallback
   chat.py              15 read-only tools over ALL 210,993 works + offline router
+  intelligence/targeting.py  budgeted audit plan — travel-aware, beats the ranking
+  casereport.py        one printable PDF per case, contract stamped on every page
+  salesforce.py        CRM case mirror + Agentforce topic router
   ocr.py               read a work board; refuses to settle an ambiguous reference
   photohash.py         pHash + dHash — the same *picture*, not the same file
   field.py             immutable, attributed site-verification records
   api/                 app.py · auth.py (JWT/RBAC) · audit.py (hash chain) · strings/translations
-frontend/src/          App · pages/ (10) · components/ · AuthContext · I18nContext · RoleContext
+frontend/src/          App · pages/ (12) · components/ · AuthContext · I18nContext · RoleContext
 demo/                  WALKTHROUGH.md + 5 generated work-board photographs
 scripts/               profile_data.py · make_demo_data.py
 ```
@@ -86,7 +91,7 @@ scripts/               profile_data.py · make_demo_data.py
 ## Commands
 
 ```bash
-.venv/Scripts/python.exe -m pytest                    # 186 tests
+.venv/Scripts/python.exe -m pytest                    # 210 tests
 .venv/Scripts/python.exe -m mplads.cli ingest         # raw -> data/interim (~40s)
 .venv/Scripts/python.exe -m mplads.cli train          # 3 models (~90s)
 .venv/Scripts/python.exe -m mplads.cli pipeline       # artifacts (~50s)
@@ -167,6 +172,33 @@ officer found. Three rules hold it together:
 Works that were never surfaced return a "clear record" case file rather than 404. That is
 not cosmetic: if only flagged works can be visited, every label ever collected is a positive
 and the weights can never be corrected by one.
+
+## The audit plan (UVP-7)
+
+`intelligence/targeting.py` answers the question ranking cannot: *"I have twenty
+auditor-days — where do I send them?"* Cases do not cost the same to check, so this is a
+budgeted selection, not a sort:
+
+- first work at an implementing agency costs **1.0 auditor-day** (travel, visit, write-up)
+- every further work there costs **0.35** — the auditor is already standing there
+
+That one dependency is why a plan beats the ranking it is built from. Opening an agency is
+judged on the **bundle** it unlocks, not its best single case; a purely myopic greedy takes
+a large remote work and never notices six mediocre ones going cheap next door.
+
+**It is a heuristic and says so.** Ratio-greedy is not optimal — `test_the_planner_is_
+greedy_and_does_not_pretend_otherwise` pins a case where it trails the clustered optimum.
+The comparison table is built to be able to report that we lost; a table hard-wired to
+crown our own strategy would be decoration, not evidence.
+
+## The resolution loop
+
+An officer finding recorded in the Salesforce hub writes an **immutable, attributed**
+record into `field.py`, the same store the in-app verification writes to. Stage moves are
+workflow and mutable; findings are evidence and are not. `salesforce.update_case_stage`
+raises rather than writing "anonymous" into the label set, and "False Positive" maps to
+`VERIFIED_COMPLETE` on purpose — a negative label is half of what makes a label set usable,
+and giving it its own name is how it quietly stops being counted.
 
 ## Open items
 
