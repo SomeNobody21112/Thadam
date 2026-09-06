@@ -23,12 +23,43 @@ function Meter({ value, color }) {
 export default function CaseFile() {
   const { ref } = useParams();
   const [c, setC] = useState(null);
+  const [sfCase, setSfCase] = useState(null);
   const [err, setErr] = useState(null);
+  const [activeStage, setActiveStage] = useState("New");
+  const [sfFinding, setSfFinding] = useState("");
+  const [sfUpdating, setSfUpdating] = useState(false);
+  const [sfMsg, setSfMsg] = useState("");
 
   useEffect(() => {
-    setC(null); setErr(null);
+    setC(null); setErr(null); setSfCase(null);
     api.case(ref).then(setC).catch((e) => setErr(String(e)));
+    api.salesforceCase(ref)
+      .then((data) => {
+        setSfCase(data);
+        setActiveStage(data.current_stage || "New");
+        setSfFinding(data.case?.officer_finding || "");
+      })
+      .catch(() => setSfCase(null));
   }, [ref]);
+
+  async function updateSfStage(stage, finding = sfFinding) {
+    if (sfUpdating) return;
+    setSfUpdating(true);
+    setSfMsg("");
+    try {
+      await api.updateSalesforceStage({
+        work_ref: ref,
+        stage: stage,
+        officer_finding: finding,
+      });
+      setActiveStage(stage);
+      setSfMsg(`✅ Updated Salesforce stage to ${stage}`);
+    } catch (e) {
+      setSfMsg(`❌ Failed to update: ${e}`);
+    } finally {
+      setSfUpdating(false);
+    }
+  }
 
   if (err) return (<><Topbar title="Case File" /><div className="content"><div className="empty">{err}</div></div></>);
   if (!c) return (<><Topbar title="Case File" /><div className="content"><Loading /></div></>);
@@ -88,9 +119,69 @@ export default function CaseFile() {
             <div className="value" style={{ fontSize: 24 }}>{c.n_signal_families} families</div>
             <div className="foot">independent signal families fired</div>
           </div>
-        </div>
+        </div></Reveal>
 
-        </Reveal>
+        {sfCase && (
+          <div className="card" style={{ marginTop: 18, background: "#fdfbf7", borderColor: "rgba(168, 69, 42, 0.2)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 16 }}>⚡</span>
+                <strong style={{ fontSize: 14, color: "var(--accent)" }}>Salesforce CRM Casework & Path</strong>
+                <span className="fam-tag">{sfCase.case?.escalation_tier}</span>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <Link to="/salesforce" className="link" style={{ fontSize: 12 }}>
+                  Open in Salesforce Hub →
+                </Link>
+              </div>
+            </div>
+
+            {/* Path Stepper */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 4, marginBottom: 12 }}>
+              {sfCase.stages?.map((st, idx) => {
+                const isCurrent = activeStage === st.stage;
+                const colors = {
+                  // Same ordinal ramp as the Salesforce hub — see STAGE_COLORS there.
+                  New: "#c4b8a2", Assigned: "#9a6b1f", "In Progress": "#a8452a",
+                  Verified: "#43976a", Closed: "#2f5d3f",
+                };
+                return (
+                  <button
+                    key={st.stage}
+                    onClick={() => updateSfStage(st.stage)}
+                    disabled={sfUpdating}
+                    style={{
+                      padding: "6px 2px",
+                      fontSize: 11,
+                      fontWeight: isCurrent ? 700 : 500,
+                      borderRadius: 4,
+                      border: "1px solid",
+                      borderColor: isCurrent ? colors[st.stage] : "#d1d5db",
+                      background: isCurrent ? colors[st.stage] : "#ffffff",
+                      color: isCurrent ? "#ffffff" : "var(--text)",
+                      cursor: "pointer",
+                      textAlign: "center",
+                    }}
+                  >
+                    {st.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Active Stage Guidance */}
+            <div style={{ fontSize: 12.5, padding: "8px 12px", background: "#ffffff", borderRadius: 4, borderLeft: "3px solid var(--accent)", color: "var(--text-2)" }}>
+              <strong>Officer Guidance:</strong> <em>"{sfCase.stages?.find((s) => s.stage === activeStage)?.guidance}"</em>
+            </div>
+
+            {sfMsg && (
+              <div style={{ fontSize: 12, fontWeight: 600, color: sfMsg.startsWith("✅") ? sevFill("LOW") : sevFill("HIGH"), marginTop: 8 }}>
+                {sfMsg}
+              </div>
+            )}
+          </div>
+        )}
+
         <Reveal delay={80}><div className="grid cols-2" style={{ marginTop: 16 }}>
           <div className="card">
             <h3>Evidence — why this was surfaced</h3>

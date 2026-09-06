@@ -1,0 +1,37 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "MPLADS: API (debug)",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": ["mplads.api.app:app", "--port", "8000", "--reload"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "console": "integratedTerminal",
+      "justMyCode": false
+    },
+    {
+      "name": "MPLADS: Pipeline",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "mplads.cli",
+      "args": ["pipeline"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "console": "integratedTerminal"
+    },
+    {
+      "name": "MPLADS: Current test file",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "pytest",
+      "args": ["${file}", "-v"],
+      "cwd": "${workspaceFolder}",
+      "python": "${workspaceFolder}/.venv/Scripts/python.exe",
+      "console": "integratedTerminal"
+    }
+  ],
+  "compounds": []
+}

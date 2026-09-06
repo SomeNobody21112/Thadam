@@ -1,0 +1,33 @@
+# One-click backend deploy. Render is used here because it gives the two things Vercel's
+# serverless runtime cannot: a long-running process and a persistent writable disk.
+#
+# The API needs both:
+#   - it holds a 66 MB corpus in memory and answers from it, rather than cold-loading
+#     146 MB of artifacts on every invocation;
+#   - the hash-chained audit log and the field verification records are SQLite writes that
+#     must survive a restart, or the append-only chain is a fiction.
+#
+# Any equivalent host works — Railway, Fly.io, an Azure/AWS container, a MoSPI VM.
+
+services:
+  - type: web
+    name: mplads-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter          # free tier has no persistent disk; starter is the minimum that does
+    healthCheckPath: /api/health
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: MPLADS_DATA_DIR
+        value: /app/data
+      - key: MPLADS_REQUIRE_AUTH
+        value: "1"         # production requires a badge to write; reads stay open
+      - key: MPLADS_JWT_SECRET
+        generateValue: true
+      - key: ANTHROPIC_API_KEY
+        sync: false        # set in the dashboard; without it briefings use templates
+    disk:
+      name: mplads-artifacts
+      mountPath: /app/data
+      sizeGB: 1            # artifacts are ~146 MB; 1 GB leaves room for photos and the log

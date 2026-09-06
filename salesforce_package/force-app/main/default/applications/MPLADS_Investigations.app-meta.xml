@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomApplication xmlns="http://soap.sforce.com/2006/04/metadata">
+    <label>MPLADS Investigations</label>
+    <navType>Standard</navType>
+    <uiType>Lightning</uiType>
+    <formFactors>Small</formFactors>
+    <formFactors>Large</formFactors>
+    <tabs>Investigation_Case__c</tabs>
+    <tabs>Evidence__c</tabs>
+    <tabs>standard-report</tabs>
+    <tabs>standard-Dashboard</tabs>
+    <description>Investigation leads from the MPLADS intelligence engine, with the casework that follows them.</description>
+</CustomApplication>

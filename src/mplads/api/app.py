@@ -448,6 +448,8 @@ def chat_capabilities() -> dict:
     """What the assistant can look up, and whether it is running live or offline."""
     return {
         "live": llm.available(),
+        # Why, not just whether. A configured-but-unfunded key used to report "live".
+        "live_status": llm.status(),
         "tools": [
             {"name": name, "does": (fn.__doc__ or "").strip().splitlines()[0]}
             for name, fn in chatbot.TOOL_FUNCS.items()
@@ -460,6 +462,63 @@ def chat_capabilities() -> dict:
             "Can you detect cost overruns?",
             "What models did you train?",
         ],
+        # Grouped starters, so the panel opens on something an evaluator would
+        # actually ask rather than a blank box. Every one of these is answerable by
+        # the offline router, so they work with or without billing.
+        "categories": [
+            {
+                "category": "Portfolio & scale",
+                "icon": "▤",
+                "prompts": [
+                    "How many works and leads are in the national portfolio?",
+                    "What does exposure at risk mean?",
+                    "What is the health index?",
+                ],
+            },
+            {
+                "category": "Leads & ranking",
+                "icon": "▦",
+                "prompts": [
+                    "Show me the top leads",
+                    "How are leads ranked?",
+                    "What does HIGH confidence mean?",
+                ],
+            },
+            {
+                "category": "States & agencies",
+                "icon": "§",
+                "prompts": [
+                    "How many works in Bihar?",
+                    "Which agencies changed behaviour?",
+                    "Tell me about MP3018356-W86316",
+                ],
+            },
+            {
+                "category": "Method & limits",
+                "icon": "◈",
+                "prompts": [
+                    "What models did you train?",
+                    "What work types did you discover?",
+                    "Can you detect cost overruns?",
+                ],
+            },
+            {
+                "category": "Salesforce & Agentforce",
+                "icon": "⚡",
+                "prompts": [
+                    "Show me HIGH priority cases in Bihar",
+                    "What cases are loaded in Salesforce CRM?",
+                    "What is the 5-stage investigation path?",
+                    "Which case has the highest exposure?",
+                ],
+            },
+        ],
+        # The languages the *interface* is translated into. The written answer is
+        # English unless a funded key is configured, and `answers_translated` says
+        # which of those two is true rather than letting the picker imply the first.
+        "languages": {code: name for code, (name, _, _) in translations.BUNDLES.items()},
+        "native": {code: native for code, (_, native, _) in translations.BUNDLES.items()},
+        "answers_translated": llm.available(),
     }
 
 
@@ -683,3 +742,114 @@ def duplicate_pairs(
         "items": json.loads(page.to_json(orient="records")),
         "summary": summary,
     }
+
+
+# -------------------------------------------------- Salesforce CRM & Agentforce
+
+
+class UpdateStageRequest(BaseModel):
+    work_ref: str
+    stage: str
+    officer_finding: str = ""
+    target_review_date: str = ""
+
+
+class AgentforceQueryRequest(BaseModel):
+    question: str
+
+
+@app.get("/api/salesforce/overview")
+def salesforce_overview() -> dict:
+    """Salesforce Org status, custom objects, 5-stage Path, reports and dashboards."""
+    from mplads import salesforce as sf
+    return sf.get_salesforce_overview()
+
+
+@app.get("/api/salesforce/cases")
+def salesforce_cases(
+    stage: str | None = None,
+    state: str | None = None,
+    tier: str | None = None,
+    q: str | None = None,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+) -> dict:
+    """The 500 High-Priority Investigation Cases in Salesforce CRM."""
+    from mplads import salesforce as sf
+    cases = sf.load_salesforce_cases()
+    if stage:
+        cases = [c for c in cases if c["investigation_status"] == stage]
+    if state:
+        cases = [c for c in cases if (c["state"] or "").lower() == state.lower()]
+    if tier:
+        cases = [c for c in cases if c["escalation_tier"] == tier]
+    if q:
+        needle = q.lower()
+        cases = [
+            c for c in cases
+            if needle in (c["work_ref"] or "").lower()
+            or needle in (c["description"] or "").lower()
+            or needle in (c["implementing_agency"] or "").lower()
+            or needle in (c["state"] or "").lower()
+        ]
+    return {
+        "total": len(cases),
+        "items": cases[offset : offset + limit],
+        "stages": sf.PATH_STAGES,
+        "findings": sf.OFFICER_FINDINGS,
+    }
+
+
+@app.get("/api/salesforce/case/{work_ref}")
+def salesforce_case(work_ref: str) -> dict:
+    """Get single Salesforce Investigation Case with evidence and Path stage info."""
+    from mplads import salesforce as sf
+    cases = sf.load_salesforce_cases()
+    match = next((c for c in cases if c["work_ref"] == work_ref.upper()), None)
+    if not match:
+        raise HTTPException(404, f"case {work_ref} not found in Salesforce CRM")
+    evidence = sf.load_salesforce_evidence(work_ref)
+    return {
+        "case": match,
+        "evidence": evidence,
+        "stages": sf.PATH_STAGES,
+        "current_stage": match["investigation_status"],
+        "guidance": next((s["guidance"] for s in sf.PATH_STAGES if s["stage"] == match["investigation_status"]), ""),
+        "findings": sf.OFFICER_FINDINGS,
+    }
+
+
+@app.post("/api/salesforce/update-stage")
+def update_salesforce_stage(
+    req: UpdateStageRequest,
+    principal: Principal = Depends(current_principal),
+) -> dict:
+    """Update case investigation stage and officer findings."""
+    from mplads import salesforce as sf
+    try:
+        res = sf.update_case_stage(
+            work_ref=req.work_ref.upper(),
+            stage=req.stage,
+            officer_finding=req.officer_finding,
+            review_date=req.target_review_date,
+        )
+        audit().record(
+            actor=getattr(principal, "subject", "officer"),
+            role=getattr(principal, "role", "auditor"),
+            action="UPDATE_STAGE",
+            resource=f"/api/salesforce/case/{req.work_ref.upper()}",
+            detail={"stage": req.stage, "finding": req.officer_finding},
+        )
+        return res
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+
+
+@app.post("/api/agentforce/query")
+def agentforce_query(req: AgentforceQueryRequest) -> dict:
+    """Direct query against Agentforce Investigation Lookup agent."""
+    from mplads import salesforce as sf
+    if not req.question.strip():
+        raise HTTPException(400, "question is required")
+    return sf.query_agentforce(req.question.strip())
+

@@ -97,8 +97,37 @@ def _client():
         return None
 
 
+#: Set once a real call fails in a way that will keep failing — an empty balance, a revoked
+#: key, a disabled model. Cleared only by a restart, because these do not recover mid-run.
+_DEGRADED: str | None = None
+
+
+def _mark_degraded(reason: str) -> None:
+    """Record that the configured key authenticates but cannot actually be used."""
+    global _DEGRADED
+    if _DEGRADED is None:
+        _DEGRADED = reason
+        LOGGER.warning("LLM marked unavailable for this process: %s", reason)
+
+
 def available() -> bool:
-    return _client() is not None
+    """Whether a written briefing can actually be produced right now.
+
+    This used to return True whenever an API key was *configured*, which is a different
+    question. A key with an empty balance authenticates perfectly and then fails on every
+    request — so the UI reported "live" while every path silently served its template. The
+    honest answer has to account for calls we have already watched fail.
+    """
+    return _client() is not None and _DEGRADED is None
+
+
+def status() -> dict:
+    """Why the assistant is in the state it is in, for the UI to show rather than guess."""
+    if _client() is None:
+        return {"live": False, "reason": "no API key configured"}
+    if _DEGRADED is not None:
+        return {"live": False, "reason": _DEGRADED}
+    return {"live": True, "reason": "key configured and calls succeeding"}
 
 
 def _scrub(text: str) -> str:
@@ -125,6 +154,15 @@ def _ask(prompt: str, *, max_tokens: int = 700, system: str = SYSTEM) -> str:
         )
     except Exception as exc:
         LOGGER.warning("LLM call failed (%s) — falling back to template", type(exc).__name__)
+        # A billing, auth or model-access failure will fail identically on every later call.
+        # Record it, so `available()` stops claiming "live" and the UI stops promising a
+        # briefing it cannot deliver. Transient failures (timeout, rate limit, overload) are
+        # left alone — those genuinely do recover.
+        name = type(exc).__name__
+        if name in {"AuthenticationError", "PermissionDeniedError", "NotFoundError"}:
+            _mark_degraded(f"{name}: the key is configured but not usable")
+        elif name == "BadRequestError" and "credit" in str(exc).lower():
+            _mark_degraded("the account has no credit balance")
         return ""
     if getattr(response, "stop_reason", None) == "refusal":
         LOGGER.warning("LLM declined the request — falling back to template")

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<PathAssistant xmlns="http://soap.sforce.com/2006/04/metadata">
+    <active>true</active>
+    <entityName>Investigation_Case__c</entityName>
+    <fieldName>Investigation_Status__c</fieldName>
+    <masterLabel>Investigation Path</masterLabel>
+    <recordTypeName>__MASTER__</recordTypeName>
+    <pathAssistantSteps>
+        <fieldNames>Confidence_Band__c</fieldNames>
+        <fieldNames>Exposure__c</fieldNames>
+        <fieldNames>Escalation_Tier__c</fieldNames>
+        <info>&lt;p&gt;Surfaced by the intelligence engine and not yet looked at by a person. Read the evidence before deciding whether it warrants a visit.&lt;/p&gt;</info>
+        <picklistValueName>New</picklistValueName>
+    </pathAssistantSteps>
+    <pathAssistantSteps>
+        <fieldNames>OwnerId</fieldNames>
+        <fieldNames>Target_Review_Date__c</fieldNames>
+        <fieldNames>Recommended_Next_Step__c</fieldNames>
+        <info>&lt;p&gt;An officer owns this case. The review date is the commitment, not a suggestion.&lt;/p&gt;</info>
+        <picklistValueName>Assigned</picklistValueName>
+    </pathAssistantSteps>
+    <pathAssistantSteps>
+        <fieldNames>Suggested_Actions__c</fieldNames>
+        <fieldNames>Early_Warning_Reason__c</fieldNames>
+        <info>&lt;p&gt;Records requested or a site visit arranged. Log what you find in Chatter as you go, so the case explains itself to whoever reads it next.&lt;/p&gt;</info>
+        <picklistValueName>In Progress</picklistValueName>
+    </pathAssistantSteps>
+    <pathAssistantSteps>
+        <fieldNames>Officer_Finding__c</fieldNames>
+        <fieldNames>Not_A_Fraud_Finding__c</fieldNames>
+        <info>&lt;p&gt;Someone has actually looked. Record what was found - including 'nothing wrong', which is as useful to the system as a confirmed problem.&lt;/p&gt;</info>
+        <picklistValueName>Verified</picklistValueName>
+    </pathAssistantSteps>
+    <pathAssistantSteps>
+        <fieldNames>Officer_Finding__c</fieldNames>
+        <info>&lt;p&gt;Finding recorded and the case is done. It is now a label the engine can learn from, which is the only way the scoring ever stops being a reasoned guess.&lt;/p&gt;</info>
+        <picklistValueName>Closed</picklistValueName>
+    </pathAssistantSteps>
+</PathAssistant>

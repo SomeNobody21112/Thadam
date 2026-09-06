@@ -1,0 +1,71 @@
+# Hugging Face Spaces (Docker SDK) — API + build-time artifact generation.
+#
+# Differs from ./Dockerfile in one important way: that image serves pre-built artifacts and
+# expects them on a mounted volume. This one *generates* them during the build, so the Space
+# is self-contained and there is nothing to upload after deploying.
+#
+# The cost of that choice, stated plainly:
+#   - the Space repo must carry ~538 MB of inputs (Dataset/raw 245 MB + the cached MiniLM
+#     embeddings 293 MB), tracked with git-lfs;
+#   - the build installs scikit-learn and lifelines, which serving does not need;
+#   - the build runs ~3 minutes of compute (ingest -> train -> pipeline);
+#   - the finished image is roughly 1.1 GB.
+#
+# No torch and no sentence-transformers: the MiniLM vectors are pre-computed and shipped in
+# Dataset/models/archetype/desc_embeddings.npz, so the 45-minute embedding step is pre-paid.
+
+FROM python:3.11-slim
+
+# Spaces run as uid 1000. Create the user first so everything below is owned correctly —
+# a root-owned /app means the pipeline cannot write its artifacts at build time and the
+# audit log cannot be appended to at run time.
+RUN useradd -m -u 1000 user
+USER user
+ENV HOME=/home/user \
+    PATH=/home/user/.local/bin:$PATH \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONIOENCODING=utf-8 \
+    MPLADS_DATA_DIR=/home/user/app/data
+
+WORKDIR $HOME/app
+
+# --- dependencies -----------------------------------------------------------------
+# Build deps include the modelling stack; serving alone would not need it.
+COPY --chown=user requirements-serve.txt requirements-build.txt ./
+RUN pip install --no-cache-dir --user -r requirements-build.txt
+
+# --- source -----------------------------------------------------------------------
+COPY --chown=user pyproject.toml ./
+COPY --chown=user src/ ./src/
+RUN pip install --no-cache-dir --user --no-deps -e .
+
+# --- inputs -----------------------------------------------------------------------
+# Only what the pipeline actually reads. Everything else under Dataset/ is a previous
+# team's derived output and is not an input (see config.REFERENCE).
+COPY --chown=user Dataset/raw/ ./Dataset/raw/
+COPY --chown=user Dataset/models/archetype/ ./Dataset/models/archetype/
+
+# --- generate the artifacts -------------------------------------------------------
+# Idempotent on purpose: if a future change bakes artifacts in or mounts them, this step
+# detects them and skips, rather than spending three minutes rebuilding what already exists.
+RUN if [ -f "$MPLADS_DATA_DIR/artifacts/stats.json" ]; then \
+        echo "artifacts already present — skipping generation"; \
+    else \
+        python -m mplads.cli ingest && \
+        python -m mplads.cli train && \
+        python -m mplads.cli pipeline; \
+    fi && \
+    test -f "$MPLADS_DATA_DIR/artifacts/stats.json" || \
+        (echo "FATAL: pipeline produced no stats.json" && exit 1)
+
+# Drop the inputs once the artifacts exist — 538 MB of CSV and embeddings that serving never
+# reads again. Keeps the final image roughly 500 MB smaller.
+RUN rm -rf ./Dataset
+
+# Spaces route to 7860 unless app_port says otherwise.
+EXPOSE 7860
+
+# One worker: the corpus is held in memory and the SQLite audit chain is append-only, so a
+# second worker would double the memory and could interleave writes into the chain.
+CMD ["sh", "-c", "uvicorn mplads.api.app:app --host 0.0.0.0 --port ${PORT:-7860} --workers 1"]

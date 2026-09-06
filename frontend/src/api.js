@@ -1,4 +1,11 @@
-const base = "";
+/**
+ * Where the API lives.
+ *
+ * Empty in development, where Vite proxies `/api` to localhost:8000 and same-origin means
+ * no CORS. In a split deployment — the static site on one host, FastAPI on another — set
+ * `VITE_API_BASE` at build time to the API's origin, with no trailing slash.
+ */
+const base = (import.meta.env?.VITE_API_BASE || "").replace(/\/+$/, "");
 
 let authToken = null;
 export function _setToken(tok) { authToken = tok; }
@@ -22,7 +29,7 @@ export const api = {
   roles: () => get("/api/roles"),
   setToken: _setToken,
   login: (username, password) =>
-    fetch("/api/auth/login", {
+    fetch(base + "/api/auth/login", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ username, password }),
     }).then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); }),
@@ -33,12 +40,12 @@ export const api = {
     // The work the officer is standing on, so a photograph already submitted for a
     // *different* sanction is reported and one re-taken for this work is not.
     if (workRef) form.append("work_ref", workRef);
-    return fetch("/api/ocr", { method: "POST", headers: authHeaders(), body: form })
+    return fetch(base + "/api/ocr", { method: "POST", headers: authHeaders(), body: form })
       .then((r) => { if (!r.ok) throw new Error(String(r.status)); return r.json(); });
   },
   verifications: (ref) => get(`/api/verify/${encodeURIComponent(ref)}`),
   verify: (ref, body) =>
-    fetch(`/api/verify/${encodeURIComponent(ref)}`, {
+    fetch(base + `/api/verify/${encodeURIComponent(ref)}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
@@ -47,7 +54,7 @@ export const api = {
   languages: () => get("/api/languages"),
   chatCapabilities: () => get("/api/chat/capabilities"),
   chat: (body) =>
-    fetch("/api/chat", {
+    fetch(base + "/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json", ...authHeaders() },
       body: JSON.stringify(body),
@@ -83,6 +90,32 @@ export const api = {
     return get(`/api/worklist?${q}`);
   },
   case: (ref) => get(`/api/case/${encodeURIComponent(ref)}`),
+  salesforceOverview: () => get("/api/salesforce/overview"),
+  salesforceCases: (params = {}) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== "" && v != null)
+    ).toString();
+    return get(`/api/salesforce/cases?${q}`);
+  },
+  salesforceCase: (ref) => get(`/api/salesforce/case/${encodeURIComponent(ref)}`),
+  updateSalesforceStage: (body) =>
+    fetch(base + "/api/salesforce/update-stage", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    }),
+  agentforceQuery: (question) =>
+    fetch(base + "/api/agentforce/query", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders() },
+      body: JSON.stringify({ question }),
+    }).then((r) => {
+      if (!r.ok) throw new Error(String(r.status));
+      return r.json();
+    }),
 };
 
 /**

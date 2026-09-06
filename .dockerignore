@@ -1,0 +1,26 @@
+# The raw dataset is 878 MB and is never needed by the serving image — the pipeline
+# consumes it, the API does not.
+Dataset/
+
+# Artifacts are mounted at runtime, not baked in (see Dockerfile).
+data/
+
+# Local development noise
+.venv/
+.git/
+.vscode/
+.claude/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+*.egg-info/
+
+# The frontend is deployed separately (Vercel) — it is not part of the API image.
+frontend/
+node_modules/
+
+# Demo and Salesforce assets are not needed to serve
+demo/
+salesforce_package/
+salesforce_extras/
+docs/

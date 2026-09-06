@@ -1,0 +1,17 @@
+# Dependencies needed to GENERATE the artifacts (ingest -> train -> pipeline), on top of
+# everything needed to serve them.
+#
+# Used by Dockerfile.hf, which builds the artifacts inside the image. The plain ./Dockerfile
+# does not install these: it serves artifacts that were produced elsewhere, and the API
+# import chain provably never touches scikit-learn, lifelines or joblib.
+#
+# Note what is NOT here: torch and sentence-transformers. The MiniLM description vectors are
+# pre-computed and ship in Dataset/models/archetype/desc_embeddings.npz, so the expensive
+# embedding step is already paid for and never re-run.
+
+-r requirements-serve.txt
+
+scikit-learn>=1.4      # MiniBatchKMeans (archetypes), IsolationForest (outlier cross-check)
+lifelines>=0.28        # Cox proportional hazards completion-risk model
+joblib>=1.3            # model persistence
+scipy>=1.11            # required by scikit-learn and lifelines
