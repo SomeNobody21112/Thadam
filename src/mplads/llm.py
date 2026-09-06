@@ -86,19 +86,29 @@ def _client():
         LOGGER.info("anthropic SDK not installed — LLM features use templates")
         return None
     try:
-        client = anthropic.Anthropic()
         # Constructing succeeds without a key; a call would fail. Probe cheaply.
         if not (os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("ANTHROPIC_AUTH_TOKEN")):
             LOGGER.info("no ANTHROPIC_API_KEY — LLM features use templates")
             return None
-        return client
+        # One attempt, short deadline. The SDK defaults to retrying with backoff, which is
+        # right for a transient blip and wrong for a key with no credits: it turns an
+        # instant fallback into several seconds of waiting to be told the same thing.
+        return anthropic.Anthropic(max_retries=REQUEST_RETRIES,
+                                   timeout=REQUEST_TIMEOUT_SECONDS)
     except Exception as exc:  # pragma: no cover - defensive
         LOGGER.warning("could not construct Anthropic client: %s", exc)
         return None
 
 
 def available() -> bool:
-    return _client() is not None
+    """Whether a live model will actually answer the next call.
+
+    A configured key is not the same as a working one. Once the API has told us the
+    account cannot make this request, every answer comes from a committed template — and
+    a screen that keeps reporting "live" at that point is telling the reader their Tamil
+    text was generated when it was not.
+    """
+    return _client() is not None and not _HALTED
 
 
 def _scrub(text: str) -> str:
@@ -109,8 +119,45 @@ def _scrub(text: str) -> str:
     return text.strip()
 
 
+#: How hard to try before giving the reader the template instead. One attempt, ten seconds.
+REQUEST_RETRIES = 1
+REQUEST_TIMEOUT_SECONDS = 10.0
+
+#: Failures that will fail again for the same reason on the next request: a key with no
+#: credits, a rejected key, a request this account cannot make. A transient blip
+#: (a timeout, a 500, a rate limit) is deliberately *not* here — that one is worth retrying
+#: on the next page load.
+_PERMANENT_FAILURES = {
+    "AuthenticationError", "PermissionDeniedError", "BadRequestError",
+    "NotFoundError", "UnprocessableEntityError",
+}
+
+#: Set once the API has told us something that will not change while this process lives.
+#: Without it, every page that shows an insight paid a full network round-trip — plus the
+#: SDK's retries — to be told again that the billing account is empty, and then rendered
+#: the very template it could have rendered instantly. On the demo machine that was about
+#: two seconds added to page loads that needed none of it.
+_HALTED: str = ""
+
+
+def halted() -> str:
+    """Why the live model is not being called, or "" if it is still being tried."""
+    return _HALTED
+
+
+def resume() -> None:
+    """Try the live model again — after topping up billing or changing the key."""
+    global _HALTED
+    _HALTED = ""
+    _client.cache_clear()
+
+
 def _ask(prompt: str, *, max_tokens: int = 700, system: str = SYSTEM) -> str:
     """One non-streaming call. Returns "" on any failure, so callers can fall back."""
+    global _HALTED
+
+    if _HALTED:
+        return ""
     client = _client()
     if client is None:
         return ""
@@ -124,7 +171,19 @@ def _ask(prompt: str, *, max_tokens: int = 700, system: str = SYSTEM) -> str:
             messages=[{"role": "user", "content": prompt}],
         )
     except Exception as exc:
-        LOGGER.warning("LLM call failed (%s) — falling back to template", type(exc).__name__)
+        name = type(exc).__name__
+        if name in _PERMANENT_FAILURES:
+            # Say it once, loudly, and stop asking. Repeating this per request is how a
+            # dead API key turns into "the site is slow" instead of "the key is dead".
+            _HALTED = name
+            LOGGER.warning(
+                "LLM unavailable (%s) — every insight will use its committed template "
+                "from here. Nothing is lost: the template is the same text the fallback "
+                "always produced. Call llm.resume() after fixing the key or the billing.",
+                name,
+            )
+        else:
+            LOGGER.warning("LLM call failed (%s) — falling back to template", name)
         return ""
     if getattr(response, "stop_reason", None) == "refusal":
         LOGGER.warning("LLM declined the request — falling back to template")

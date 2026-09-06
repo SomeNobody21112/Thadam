@@ -25,6 +25,15 @@ export function AuthProvider({ children }) {
     api.setToken(session?.token || null);
   }, [session]);
 
+  // The API is the authority on whether a token still works. When it rejects one, the
+  // session chip must stop claiming the officer is signed in — otherwise the header says
+  // "Bihar State Nodal Officer" while every scoped request is being refused.
+  useEffect(() => {
+    const onExpired = () => setSession(null);
+    window.addEventListener("mplads:session-expired", onExpired);
+    return () => window.removeEventListener("mplads:session-expired", onExpired);
+  }, []);
+
   const value = {
     user: session?.user || null,
     token: session?.token || null,

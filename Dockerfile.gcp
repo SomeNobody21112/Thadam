@@ -1,0 +1,63 @@
+# Cloud Run — the WHOLE product in one container: React frontend + FastAPI + artifacts.
+#
+# One service, one URL, one deploy. The frontend is served by the same FastAPI process that
+# serves the API, which means:
+#   - no CORS to configure, because the browser never makes a cross-origin request;
+#   - VITE_API_BASE stays empty, exactly as in local development, so there is no build-time
+#     origin to get wrong and no redeploy needed if the service URL changes;
+#   - one thing to deploy and one thing to roll back.
+#
+# Artifacts are BAKED IN rather than generated. Vercel's 250 MB function cap was the only
+# reason not to; Cloud Run has no such limit. Baking makes the build seconds instead of
+# ~3 minutes, and guarantees the image serves exactly the artifacts that were tested.
+#
+# Final image ~400 MB.
+
+# ---------------------------------------------------------------- stage 1: frontend
+FROM node:20-slim AS frontend
+
+WORKDIR /build
+COPY frontend/package*.json ./
+RUN npm ci
+
+COPY frontend/ ./
+# No VITE_API_BASE on purpose: same-origin relative paths, because the API is this service.
+RUN npm run build
+
+# ---------------------------------------------------------------- stage 2: runtime
+FROM python:3.11-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PYTHONIOENCODING=utf-8 \
+    MPLADS_DATA_DIR=/app/data
+
+WORKDIR /app
+
+# Serving dependencies only — no scikit-learn, lifelines or torch. The pipeline already
+# produced every artifact; nothing in the API import chain loads a model.
+COPY requirements-serve.txt ./
+RUN pip install --no-cache-dir -r requirements-serve.txt
+
+COPY pyproject.toml ./
+COPY src/ ./src/
+RUN pip install --no-cache-dir --no-deps -e .
+
+# Pre-built artifacts (~167 MB). config.MPLADS_DATA_DIR points here.
+COPY data/ ./data/
+
+# The built React app. app.py mounts /assets and serves index.html for client-side routes
+# when this directory exists, and quietly serves the API alone when it does not.
+COPY --from=frontend /build/dist ./frontend/dist
+
+# Cloud Run is stateless: the container filesystem does not survive an instance recycle.
+# That affects only the hash-chained audit log and field verification records — about 1 MB
+# combined — which reset rather than persist. Everything else is read-only and comes from
+# the image. For durable writes, mount GCS/Filestore or move these two to Cloud SQL.
+EXPOSE 8080
+
+# Cloud Run injects $PORT and expects the container to listen on it. One worker: the corpus
+# is held in memory and the audit chain is append-only, so a second worker would double the
+# memory and could interleave writes into the chain.
+CMD ["sh", "-c", "uvicorn mplads.api.app:app --host 0.0.0.0 --port ${PORT:-8080} --workers 1"]

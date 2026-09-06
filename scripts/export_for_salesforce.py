@@ -81,8 +81,15 @@ ESCALATION_BANDS = [
     (0, "District Monitoring"),
 ]
 
-#: Days to first review, by confidence band. A queue with no clock is a queue nobody works.
-REVIEW_DAYS = {"HIGH": 14, "MEDIUM": 30, "LOW": 60}
+#: Days to first review, set by who has to do the reviewing. An SLA is a resourcing
+#: commitment before it is anything else, and the escalation tier is what says how much
+#: money is attached and therefore how quickly someone senior has to look.
+TIER_REVIEW_DAYS = {"Ministry Review": 7, "State Nodal": 14, "District Monitoring": 30}
+
+#: How much the clock stretches when the engine is less sure. Confidence does not set the
+#: date, it relaxes it: chasing a MEDIUM case as hard as a HIGH one is how a queue with a
+#: clock on it becomes a queue nobody believes.
+BAND_REVIEW_MULTIPLE = {"HIGH": 1.0, "MEDIUM": 2.0, "LOW": 3.0}
 
 EVIDENCE_FIELDS = [
     ("Work Reference", "Work_Ref__c", "Text (used to relate to the case)", 40),
@@ -158,6 +165,7 @@ def write_cases(leads: list[dict]) -> Path:
             identity = case["identity"]
             evidence = case.get("evidence") or []
             warning = case.get("early_warning") or {}
+            tier = escalation_tier(case.get("exposure_rupees"))
             summary = "; ".join(
                 f"{e.get('signal')}: {e.get('detail')}" for e in evidence
             )
@@ -187,9 +195,9 @@ def write_cases(leads: list[dict]) -> Path:
                     f"{f.get('check')} ({f.get('authority')})"
                     for f in case.get("compliance_findings") or []
                 ), 2000),
-                escalation_tier(case.get("exposure_rupees")),
+                tier,
                 review_due(identity.get("recommendation_date"),
-                           case.get("confidence_band")),
+                           case.get("confidence_band"), tier),
                 "New",
                 "",          # Officer Finding — filled in Salesforce, read back by feedback
                 "TRUE",      # Not A Fraud Finding — the contract, on every record
@@ -214,11 +222,18 @@ def escalation_tier(exposure: object) -> str:
     return "District Monitoring"
 
 
-def review_due(recommendation_date: object, band: object) -> str:
-    """A first-review date, so the queue has a clock on it."""
+def review_due(recommendation_date: object, band: object, tier: str = "") -> str:
+    """A first-review date, so the queue has a clock on it.
+
+    The tier sets the clock and the band stretches it. Doing it the other way round is what
+    the first version did, and it gave all five hundred cases the same date — every loaded
+    case is HIGH, so a band-only clock carries no information at all and an ageing report
+    built on it cannot tell a slipping five-crore case from a routine district one.
+    """
     import datetime as dt
 
-    days = REVIEW_DAYS.get(str(band), 60)
+    days = round(TIER_REVIEW_DAYS.get(tier, 30)
+                 * BAND_REVIEW_MULTIPLE.get(str(band), 2.0))
     return (config.SNAPSHOT_DATE + dt.timedelta(days=days)).isoformat()
 
 

@@ -156,3 +156,22 @@ export function usePointerSpotlight() {
   }, []);
   return ref;
 }
+
+/**
+ * Hold a value still until it has stopped changing for `delay` milliseconds.
+ *
+ * The audit-plan and rota sliders each drive a request that recomputes a plan. Firing on
+ * every `onChange` meant a drag from 5 to 250 days queued roughly fifty requests, and the
+ * screen sat on whichever one happened to land last — which is why the page appeared to
+ * hang while the number under the slider had long since settled.
+ *
+ * The displayed number still tracks the slider exactly. Only the fetch waits.
+ */
+export function useDebounced(value, delay = 320) {
+  const [settled, setSettled] = useState(value);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delay);
+    return () => clearTimeout(timer);
+  }, [value, delay]);
+  return settled;
+}

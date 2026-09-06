@@ -4,10 +4,11 @@ import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
-import { api, num, rupees } from "../api.js";
+import { api, API_START_HINT, num, rupees } from "../api.js";
 import { Loading, Topbar } from "../components/Bits.jsx";
 import { Reveal } from "../components/Reveal.jsx";
 import { sev } from "../severity.js";
+import { useDebounced } from "../hooks.js";
 
 /**
  * The audit plan: where to send a finite number of auditor-days.
@@ -36,11 +37,26 @@ const STRATEGY_NOTE = {
     "No system at all. The floor everything else has to beat.",
 };
 
-/** A counted-up number that settles rather than snapping into place. */
+/**
+ * A counted-up number that settles rather than snapping into place.
+ *
+ * A hidden document has no compositor, so `requestAnimationFrame` never fires — and this
+ * counted from zero, meaning a page loaded in a background tab showed a permanent "₹0"
+ * where the headline figure should be. Worse than an unanimated number, because a reader
+ * has no way to tell a stuck animation from a real zero. So: animate only when there are
+ * frames coming, and otherwise land on the true figure immediately.
+ */
 function Figure({ value, format = num, duration = 700 }) {
-  const [shown, setShown] = useState(0);
+  const [shown, setShown] = useState(value ?? 0);
   useEffect(() => {
-    if (value == null) return;
+    if (value == null) return undefined;
+
+    const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    if (reduced || document.hidden) {
+      setShown(value);
+      return undefined;
+    }
+
     let frame;
     const start = performance.now();
     const tick = (now) => {
@@ -51,7 +67,20 @@ function Figure({ value, format = num, duration = 700 }) {
       if (t < 1) frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(frame);
+
+    // Backgrounded mid-count, the frames stop. Land on the real figure rather than
+    // freezing part-way there.
+    const onHide = () => {
+      if (document.hidden) {
+        cancelAnimationFrame(frame);
+        setShown(value);
+      }
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener("visibilitychange", onHide);
+    };
   }, [value, duration]);
   return <>{format(shown)}</>;
 }
@@ -61,16 +90,41 @@ export default function AuditPlan() {
   const [data, setData] = useState(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  // Kept apart from `data` on purpose. A failed request and an empty pipeline are
+  // different problems with different fixes, and this page used to report both as
+  // "run the pipeline first" — which is wrong, unactionable, and permanent.
+  const [failed, setFailed] = useState("");
+  const [attempt, setAttempt] = useState(0);
+
+  // The figure under the slider tracks the thumb exactly; only the request waits for it
+  // to settle. Firing on every change queued a request per step of the drag, and the
+  // screen sat on whichever one happened to land last.
+  const askedBudget = useDebounced(budget);
 
   useEffect(() => {
     let live = true;
     setBusy(true);
-    api.auditPlan(budget)
-      .then((d) => { if (live) setData(d); })
-      .catch(console.error)
+    setFailed("");
+    api.auditPlan(askedBudget)
+      .then((d) => { if (live) { setData(d); setFailed(""); } })
+      .catch((err) => {
+        // Swallowing this was the bug: the page fell through to "no plan available" and
+        // stayed there, because the only thing that re-runs this effect is the budget
+        // changing and the budget control is not rendered in that branch.
+        console.error(err);
+        if (live) setFailed(String(err.message || err));
+      })
       .finally(() => { if (live) setBusy(false); });
     return () => { live = false; };
-  }, [budget]);
+  }, [askedBudget, attempt]);
+
+  // The API is commonly still booting when the first page is opened. One automatic retry
+  // covers that without the reader having to know it happened.
+  useEffect(() => {
+    if (!failed || attempt > 0) return undefined;
+    const timer = setTimeout(() => setAttempt(1), 1200);
+    return () => clearTimeout(timer);
+  }, [failed, attempt]);
 
   const strategies = data?.comparison?.strategies || [];
   const best = strategies.find((s) => s.optimised);
@@ -83,12 +137,36 @@ export default function AuditPlan() {
   if (!data && busy) {
     return (<><Topbar title="Audit Plan" /><div className="content"><Loading /></div></>);
   }
+  if (!data && failed) {
+    return (
+      <>
+        <Topbar title="Audit Plan" />
+        <div className="content">
+          <div className="empty">
+            <p><b>Could not reach the API.</b> {failed}</p>
+            <p className="muted">
+              The plan is computed server-side. If the API is still starting, this clears
+              on its own; otherwise start it with{" "}<code>{API_START_HINT}</code>.
+            </p>
+            <button className="btn" onClick={() => setAttempt((n) => n + 1)}>
+              Try again
+            </button>
+          </div>
+        </div>
+      </>
+    );
+  }
   if (!data?.available) {
     return (
       <>
         <Topbar title="Audit Plan" />
         <div className="content">
-          <div className="empty">No scored works available. Run the pipeline first.</div>
+          <div className="empty">
+            <p>{data?.note || "No scored works available. Run the pipeline first."}</p>
+            <button className="btn" onClick={() => setAttempt((n) => n + 1)}>
+              Try again
+            </button>
+          </div>
         </div>
       </>
     );
@@ -129,7 +207,6 @@ export default function AuditPlan() {
                   key={preset}
                   className={"plan-preset" + (preset === budget ? " active" : "")}
                   onClick={() => setBudget(preset)}
-                  disabled={busy}
                 >
                   {preset}
                 </button>
@@ -139,7 +216,7 @@ export default function AuditPlan() {
           <input
             type="range" min={5} max={250} step={5} value={budget}
             onChange={(e) => setBudget(Number(e.target.value))}
-            className="plan-slider" disabled={busy}
+            className="plan-slider"
             aria-label="Auditor-days available"
           />
           <p className="plan-cost-note">{data.comparison.cost_model.note}</p>

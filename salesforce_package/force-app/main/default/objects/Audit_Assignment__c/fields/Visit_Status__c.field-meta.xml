@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Visit_Status__c</fullName>
+    <label>Visit Status</label>
+    <type>Picklist</type>
+    <valueSet>
+        <restricted>true</restricted>
+        <valueSetDefinition>
+            <sorted>false</sorted>
+                <value>
+                    <fullName>Planned</fullName>
+                    <default>false</default>
+                    <label>Planned</label>
+                </value>
+                <value>
+                    <fullName>Travelling</fullName>
+                    <default>false</default>
+                    <label>Travelling</label>
+                </value>
+                <value>
+                    <fullName>On Site</fullName>
+                    <default>false</default>
+                    <label>On Site</label>
+                </value>
+                <value>
+                    <fullName>Visited</fullName>
+                    <default>false</default>
+                    <label>Visited</label>
+                </value>
+                <value>
+                    <fullName>Could Not Reach</fullName>
+                    <default>false</default>
+                    <label>Could Not Reach</label>
+                </value>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

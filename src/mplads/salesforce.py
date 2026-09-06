@@ -117,6 +117,10 @@ def load_salesforce_cases() -> list[dict[str, Any]]:
                 "target_review_date": review_date,
                 "investigation_status": current_stage,
                 "officer_finding": finding,
+                # Empty for a case nobody has moved. Distinguished from "moved today"
+                # deliberately — `case_ageing` counts those separately rather than
+                # treating an untouched case as a fresh one.
+                "moved_at": update.get("moved_at", ""),
                 "not_a_fraud_finding": True,
             })
     return rows
@@ -176,6 +180,12 @@ def _load_stages() -> dict[str, Any]:
         return {}
 
 
+def _now() -> str:
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 def _save_stages(state: dict[str, Any]) -> None:
     STAGE_STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
     STAGE_STATE_PATH.write_text(json.dumps(state, indent=1), encoding="utf-8")
@@ -199,10 +209,20 @@ def update_case_stage(work_ref: str, stage: str, officer_finding: str = "",
         raise ValueError(f"Invalid stage: {stage}. Must be one of {STAGE_NAMES}")
 
     state = _load_stages()
+    previous = state.get(work_ref, {})
     state[work_ref] = {
         "Investigation_Status__c": stage,
         "Officer_Finding__c": officer_finding,
         "Target_Review_Date__c": review_date or "2026-06-30",
+        # When the case last moved. Without it "how long has this been sitting in
+        # Assigned?" is unanswerable, and a queue nobody can age is a queue things get
+        # lost in. Only moves are stamped: a case still on its loaded stage has never
+        # been touched, and inventing a date for it would be inventing a history.
+        "moved_at": (
+            previous.get("moved_at")
+            if previous.get("Investigation_Status__c") == stage
+            else _now()
+        ) or _now(),
     }
     _save_stages(state)
     _STATE_UPDATES[work_ref] = state[work_ref]
@@ -246,6 +266,121 @@ def _readiness_snapshot() -> dict[str, Any]:
         "still_needed": readiness["labels_needed_to_fit_weights"],
         "note": "Nothing is refitted until the threshold is reached, and no accuracy is "
                 "claimed before then.",
+    }
+
+
+#: Stages a case can still be late in. Once someone has actually looked, the review date
+#: has served its purpose and chasing it would be chasing paperwork.
+OPEN_STAGES = {"New", "Assigned", "In Progress"}
+
+#: How overdue is overdue. Buckets rather than a single cliff, because a case three days
+#: past its date and a case three months past it are different problems for a supervisor.
+AGE_BUCKETS: tuple[tuple[str, int, int | None], ...] = (
+    ("1-30 days late", 1, 30),
+    ("31-90 days late", 31, 90),
+    ("more than 90 days late", 91, None),
+)
+
+
+def case_ageing(today: str = "") -> dict[str, Any]:
+    """Which cases have gone quiet, and how quiet.
+
+    The queue is the part of a monitoring system that fails invisibly. A lead that was
+    surfaced, assigned, and then sat untouched for four months has not been monitored — it
+    has been filed, and the exposure it carries is still out there. This counts that, in
+    rupees, so it is a number in a review meeting rather than a discovery in an audit.
+
+    **Two different silences, kept apart.** A case past its target review date is *late*:
+    someone committed to a date and the date passed. A case that has never moved off the
+    stage it was loaded on has never been *picked up* at all, which is a different failure
+    and usually a supervisor's rather than an officer's. Merging them into one "overdue"
+    figure would hide whichever is the smaller of the two.
+    """
+    from datetime import date
+
+    cutoff = date.fromisoformat(today) if today else date.today()
+    cases = load_salesforce_cases()
+
+    late: list[dict[str, Any]] = []
+    untouched = 0
+    for case in cases:
+        if case["investigation_status"] not in OPEN_STAGES:
+            continue
+        if not case["moved_at"]:
+            untouched += 1
+        try:
+            due = date.fromisoformat((case["target_review_date"] or "")[:10])
+        except ValueError:
+            continue
+        days = (cutoff - due).days
+        if days <= 0:
+            continue
+        late.append({
+            "work_ref": case["work_ref"],
+            "state": case["state"],
+            "implementing_agency": case["implementing_agency"],
+            "stage": case["investigation_status"],
+            "escalation_tier": case["escalation_tier"],
+            "target_review_date": case["target_review_date"],
+            "days_late": days,
+            "exposure_rupees": case["exposure"],
+            "ever_moved": bool(case["moved_at"]),
+        })
+
+    late.sort(key=lambda row: (-row["days_late"], -row["exposure_rupees"]))
+
+    buckets = []
+    for label, floor, ceiling in AGE_BUCKETS:
+        rows = [r for r in late
+                if r["days_late"] >= floor and (ceiling is None or r["days_late"] <= ceiling)]
+        buckets.append({
+            "label": label,
+            "cases": len(rows),
+            "exposure_rupees": sum(r["exposure_rupees"] for r in rows),
+        })
+
+    by_tier: dict[str, int] = {}
+    for row in late:
+        by_tier[row["escalation_tier"]] = by_tier.get(row["escalation_tier"], 0) + 1
+
+    open_cases = sum(1 for c in cases if c["investigation_status"] in OPEN_STAGES)
+    if open_cases and untouched == open_cases:
+        reading = (
+            f"Every one of the {open_cases} open cases is still on the stage it was loaded "
+            "on. This is a queue on its first day, not a department that has fallen behind: "
+            "the whole batch was created at the same moment and ages together. The figure "
+            "starts meaning something the moment officers begin working it."
+        )
+    elif not late:
+        reading = "Nothing open is past its review date."
+    else:
+        reading = (
+            f"{len(late)} of {open_cases} open cases are past the date someone committed "
+            f"to, carrying Rs {sum(r['exposure_rupees'] for r in late) / 1e7:.1f} crore "
+            "between them."
+        )
+
+    return {
+        "as_of": cutoff.isoformat(),
+        "cases": len(cases),
+        "open_cases": open_cases,
+        "reading": reading,
+        "late": len(late),
+        "late_exposure_rupees": sum(row["exposure_rupees"] for row in late),
+        "never_picked_up": untouched,
+        "oldest_days_late": late[0]["days_late"] if late else 0,
+        "buckets": buckets,
+        "by_tier": by_tier,
+        "items": late[:50],
+        "note": (
+            "Late means the target review date has passed and no one has recorded looking "
+            "yet. Never picked up means the case is still on the stage it was loaded on — "
+            "a different failure, and usually a supervisor's rather than an officer's."
+        ),
+        "contract": (
+            "This measures our own queue, not any agency's conduct. A late case says "
+            "something about how the casework is being run and nothing about the work."
+        ),
     }
 
 
@@ -352,6 +487,68 @@ def extract_budget(question: str) -> float:
     if not found:
         return float(targeting.DEFAULT_BUDGET)
     return float(max(1, min(int(found.group(1)), 1000)))
+
+
+#: The default team a rota is drawn for when the question does not name one. Small enough
+#: to be a real district posting rather than an org chart.
+DEFAULT_TEAM = 4
+
+
+def extract_team_size(question: str) -> int:
+    """Pull a number of auditors out of the question, or fall back to the default.
+
+    Looks for the number *next to the word*, so "split 50 days across 4 auditors" gives
+    four rather than fifty. A bare number is left to `extract_budget`, which is what a
+    question with only one number in it almost always means.
+    """
+    import re
+
+    from mplads.intelligence import assignment
+
+    found = re.search(r"(\d{1,2})\s*(?:auditors?|officers?|inspectors?|people|person)",
+                      question, re.IGNORECASE)
+    if not found:
+        found = re.search(r"(?:team|split|divide|across)\D{0,12}?(\d{1,2})\b",
+                          question, re.IGNORECASE)
+    if not found:
+        return DEFAULT_TEAM
+    return max(1, min(int(found.group(1)), assignment.MAX_AUDITORS))
+
+
+def match_agency(question: str, cases: list[dict[str, Any]]) -> str:
+    """The implementing agency a question names, or "" if it names none.
+
+    Matched against the agencies actually loaded rather than parsed out of the sentence:
+    these names are long, punctuated and inconsistently capitalised, and the only reliable
+    way to know a question means one of them is to check it against the real list. The
+    longest match wins, so a question naming a specific office is not answered with the
+    district it sits in.
+    """
+    lowered = question.lower()
+    best = ""
+    for case in cases:
+        name = case.get("implementing_agency") or ""
+        if not name or len(name) < 6:
+            continue
+        # The distinctive head of the name — the parenthesised office suffix is shared by
+        # hundreds of agencies and would match almost any question mentioning a district.
+        head = name.split("(")[0].strip().lower()
+        if len(head) >= 5 and head in lowered and len(head) > len(best.split("(")[0]):
+            best = name
+    return best
+
+
+def _note(t: dict[str, Any]) -> str:
+    """The marker that says the detail beside it is English while the figures are not.
+
+    Every answer here is a template with data poured into it. Where the data being poured
+    in includes a *sentence* written in English — a reading of the queue, a caveat about
+    sampling — the reader has to be told, because the alternative is a Tamil heading over
+    an English paragraph, which is precisely the failure the committed-string design exists
+    to avoid.
+    """
+    note = t.get("english_note") or ""
+    return f"\n\n_{note}_" if note else ""
 
 
 def query_agentforce(question: str, lang: str = "en") -> dict[str, Any]:
@@ -585,6 +782,148 @@ def query_agentforce(question: str, lang: str = "en") -> dict[str, Any]:
             "source": "Agentforce",
         }
 
+    # 3d. Overdue casework — the failure a monitoring system has that nobody screens for
+    if any(w in q for w in ["overdue", "late", "behind", "chase", "gone quiet",
+                            "slipping", "past due", "breach", "what should i chase"]):
+        ageing = case_ageing()
+        listed = "\n".join(
+            f"  - **{row['work_ref']}** ({row['state']}) - {row['days_late']} "
+            f"{t['days_late']}, Rs {row['exposure_rupees']/1e5:.1f} L, stage "
+            f"`{row['stage']}`"
+            for row in ageing["items"][:5]
+        ) or "  - Nothing is past its review date."
+        return {
+            "answer": (
+                f"### ⚡ {t['overdue']}\n\n"
+                f"- **{ageing['late']}** {t['late_cases']}\n"
+                f"- **Rs {ageing['late_exposure_rupees']/1e7:.2f} Cr** "
+                f"{t['at_risk_in_late']}\n"
+                f"- **{ageing['never_picked_up']}** {t['never_picked_up']}\n"
+                f"- {t['oldest']} **{ageing['oldest_days_late']}** {t['days_late']}\n\n"
+                f"{ageing['reading']}{_note(t)}\n\n"
+                f"**{t['start_here']}**\n{listed}\n\n"
+                f"_{t['contract']}_"
+            ),
+            "ageing": {k: ageing[k] for k in
+                       ("late", "late_exposure_rupees", "never_picked_up", "buckets")},
+            "items": ageing["items"][:10],
+            "topic": "Overdue Casework",
+            "source": "Agentforce",
+        }
+
+    # 3e. Field rota — the plan with names against it, which is what a supervisor issues
+    if any(w in q for w in ["rota", "roster", "auditors", "my team", "team of",
+                            "who goes where", "split the plan", "divide the plan",
+                            "assign the plan", "how many auditors"]):
+        try:
+            import pandas as pd
+
+            from mplads import config
+            from mplads.intelligence import assignment
+
+            frame = pd.read_parquet(
+                config.ARTIFACTS / "works_scored.parquet",
+                columns=targeting_columns(),
+            )
+            budget = extract_budget(q)
+            people = extract_team_size(q)
+            rota = assignment.build(frame, budget_days=budget, auditors=people)
+            if rota.get("available"):
+                balance = rota["balance"]
+                listed = "\n".join(
+                    f"  - **{person['label']}**: {person['agency_visits']} "
+                    f"{t['visits']}, {person['works']} {t['works']}, "
+                    f"Rs {person['exposure_rupees']/1e7:.2f} Cr "
+                    f"({person['auditor_days']} {t['auditor_days']})"
+                    for person in rota["people"]
+                )
+                return {
+                    "answer": (
+                        f"### ⚡ {t['rota']} - {people} {t['auditors']}, "
+                        f"{budget:.0f} {t['auditor_days']}\n\n"
+                        f"{t['each_agency_one_auditor']}.\n\n"
+                        f"{listed}\n\n"
+                        f"**{t['busiest']}**: {balance['busiest_days']} "
+                        f"{t['auditor_days']} (spread {balance['spread_days']}, "
+                        f"within {balance['lpt_bound']}x of the best rota that exists)\n\n"
+                        f"_{t['plan_contract']}_"
+                    ),
+                    "rota": rota["people"],
+                    "balance": balance,
+                    "topic": "Field Rota",
+                    "source": "Agentforce",
+                    "lang": lang,
+                }
+        except Exception as exc:                       # pragma: no cover - defensive
+            LOGGER.warning("agentforce rota unavailable: %s", type(exc).__name__)
+
+    # 3f. The scoreboard — the one question the system is allowed to lose on
+    if any(w in q for w in ["been right", "were we right", "accuracy", "accurate",
+                            "calibrat", "how good is the model", "scoreboard",
+                            "hit rate", "precision", "false positive"]):
+        try:
+            from mplads import field
+            from mplads.intelligence import calibration
+
+            bands = {case["work_ref"]: case["confidence_band"] for case in cases}
+            scored = calibration.build(field.recent(limit=5000), bands,
+                                       field.CONFIRMS_CONCERN)
+            listed = "\n".join(
+                f"  - **{row['band']}**: {row['visits']} {t['visits_recorded']}, "
+                + (f"{row['concerns_confirmed']} confirmed a concern "
+                   f"({row['rate']:.0%}, {row['interval'][0]:.0%}-{row['interval'][1]:.0%})"
+                   if row["reportable"] else
+                   f"{row['concerns_confirmed']} confirmed a concern - "
+                   f"{t['too_few_to_score']}")
+                for row in scored["bands"]
+            )
+            return {
+                "answer": (
+                    f"### ⚡ {t['scoreboard']}\n\n"
+                    f"**{scored['visits']}** {t['visits_recorded']}.\n\n{listed}\n\n"
+                    f"**{scored['ordering']['note']}**\n\n"
+                    f"{scored['sampling_caveat']}{_note(t)}\n\n"
+                    f"_{t['contract']}_"
+                ),
+                "calibration": scored,
+                "topic": "Field Scoreboard",
+                "source": "Agentforce",
+            }
+        except Exception as exc:                       # pragma: no cover - defensive
+            LOGGER.warning("agentforce scoreboard unavailable: %s", type(exc).__name__)
+
+    # 3g. Agency dossier — an auditor travels to a body, not to a work
+    agency = match_agency(question, cases)
+    if agency and any(w in q for w in ["brief", "dossier", "agency", "tell me about",
+                                       "what do we know", "before i visit", "visiting"]):
+        theirs = [c for c in cases if c["implementing_agency"] == agency]
+        exposure = sum(c["exposure"] for c in theirs)
+        top = sorted(theirs, key=lambda c: -c["exposure"])[:4]
+        listed = "\n".join(
+            f"  - **{c['work_ref']}**: Rs {c['exposure']/1e5:.1f} L, "
+            f"`{c['confidence_band']}`, stage `{c['investigation_status']}`"
+            for c in top
+        )
+        return {
+            "answer": (
+                f"### ⚡ {t['dossier']}\n\n"
+                f"**{agency}**\n\n"
+                f"- **{len(theirs)}** {t['cases_loaded']}\n"
+                f"- **Rs {exposure/1e7:.2f} Cr** {t['covered']}\n"
+                f"- **{t['state']}**: {theirs[0]['state']}\n\n"
+                f"**{t['start_here']}**\n{listed}\n\n"
+                f"A large agency surfaces more leads because it holds more works. The "
+                f"full dossier compares this agency's surfaced *rate* against the national "
+                f"one, which is the only version of that comparison worth acting on."
+                f"{_note(t)}\n\n"
+                f"_{t['contract']}_"
+            ),
+            "implementing_agency": agency,
+            "cases": top,
+            "topic": "Agency Dossier",
+            "source": "Agentforce",
+        }
+
     # 4. Highest exposure / top cases query
     if any(w in q for w in ["highest", "top", "worst", "biggest", "priority", "roi"]):
         top_cases = sorted(cases, key=lambda x: x["exposure"], reverse=True)[:5]
@@ -631,7 +970,12 @@ def query_agentforce(question: str, lang: str = "en") -> dict[str, Any]:
             f"• **State Investigations**: *'Show HIGH priority cases in Bihar'*\n"
             f"• **Escalation Tiers**: *'Cases in Ministry Review tier'*\n"
             f"• **Ranking & Exposure**: *'Which cases have the highest exposure at risk?'*\n"
-            f"• **Governance Path**: *'What is the 5-stage investigation path?'*\n\n"
+            f"• **Audit Planning**: *'Plan 100 auditor-days'*\n"
+            f"• **Casework Status**: *'How many cases are open?'*\n"
+            f"• **Overdue Casework**: *'What has gone quiet?'*\n"
+            f"• **Field Rota**: *'Split 50 days across 4 auditors'*\n"
+            f"• **Field Scoreboard**: *'Has the model been right so far?'*\n"
+            f"• **Agency Dossier**: *'Brief me on SARAN before I visit'*\n\n"
             f"_All findings follow the non-fraud contract: leads with corroborated evidence for human verification._"
         ),
         "topic": "Investigation Lookup",

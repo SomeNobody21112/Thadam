@@ -320,3 +320,157 @@ def build(case: dict, verifications: list[dict] | None = None) -> bytes:
     pdf.output(buffer)
     LOGGER.info("case report generated for %s", case.get("work_ref"))
     return buffer.getvalue()
+
+
+class DayPack(CaseReport):
+    """The itinerary an auditor carries, rather than the file for one work.
+
+    Same page furniture as a case file — deliberately. An officer who has read one of these
+    should not have to learn a second document, and the non-fraud contract belongs on the
+    foot of a rota for exactly the reason it belongs on the foot of a case file: a printed
+    page outlives the screen, and this one is going to be carried into a district office.
+    """
+
+    def __init__(self, label: str, band: str = "NONE"):
+        super().__init__(label, band)
+        self.set_title(f"MPLADS field day pack - {_fold(label)}")
+
+    def header(self) -> None:
+        self.set_xy(18, 16)
+        self.set_font("Helvetica", "B", 8)
+        self.set_text_color(*BRICK)
+        self.cell(100, 4, "MPLADS FIELD DAY PACK", align="L")
+        self.set_text_color(*MUTED)
+        self.set_font("Helvetica", "", 8)
+        self.cell(74, 4, self.work_ref, align="R", new_x="LMARGIN", new_y="NEXT")
+        self.set_draw_color(*RULE)
+        self.set_line_width(0.3)
+        self.line(18, 22, 192, 22)
+        self.ln(8)
+
+    def visit_block(self, index: int, visit: dict) -> None:
+        """One agency, the days it occupies, and every work to be seen while there."""
+        days = visit["day_from"]
+        span = (f"Day {days}" if visit["day_to"] == days
+                else f"Days {days}-{visit['day_to']}")
+
+        self.ln(2)
+        self.set_font("Helvetica", "B", 10)
+        self.set_text_color(*INK)
+        self.multi_cell(0, 5.5, _fold(f"{index}. {visit['implementing_agency']}"),
+                        new_x="LMARGIN", new_y="NEXT")
+        self.set_font("Helvetica", "", 8)
+        self.set_text_color(*MUTED)
+        self.multi_cell(
+            0, 4.4,
+            _fold(f"{span}  ·  {visit['state']}  ·  {visit['work_count']} work(s)  ·  "
+                  f"{visit['cost_days']} auditor-days  ·  "
+                  f"{_rupees(visit['exposure_rupees'])} exposure"),
+            new_x="LMARGIN", new_y="NEXT",
+        )
+        self.ln(1)
+
+        for work in visit["works"]:
+            self.set_font("Helvetica", "", 9)
+            self.set_text_color(*INK)
+            # A tick box, because this page is filled in with a pen at the site.
+            self.cell(6, 5, "[ ]")
+            self.cell(52, 5, _fold(work["work_ref"]))
+            self.set_font("Helvetica", "", 8)
+            self.set_text_color(*MUTED)
+            self.cell(24, 5, _fold(work["band"]))
+            self.cell(0, 5, _fold(_rupees(work["exposure_rupees"])),
+                      new_x="LMARGIN", new_y="NEXT")
+        self.ln(1)
+
+
+def build_day_pack(person: dict, rota: dict | None = None) -> bytes:
+    """One auditor's week as a document they can carry, tick and hand back.
+
+    Deliberately not a copy of the screen. The screen is for deciding; this is for the
+    journey, so it leads with where to be on which day, gives every work a box to tick, and
+    prints the assumptions the rota was built on — an officer who finds the cost model
+    wrong in the field is the fastest way it ever gets corrected.
+    """
+    rota = rota or {}
+    pdf = DayPack(person.get("label", "Auditor"))
+    pdf.add_page()
+
+    pdf.title_block(f"Field itinerary - {person.get('label', 'Auditor')}")
+
+    pdf.figures([
+        ("Agency visits", str(person.get("agency_visits", 0))),
+        ("Works to see", str(person.get("works", 0))),
+        ("Exposure covered", _rupees(person.get("exposure_rupees"))),
+        ("Auditor-days", str(person.get("auditor_days", 0))),
+    ])
+
+    pdf.section("The round")
+    pdf.field("Calendar days", str(person.get("calendar_days", 0)))
+    pdf.field("States", ", ".join(person.get("states", [])) or "-")
+    if rota.get("budget_days"):
+        pdf.field("Drawn from a plan of", f"{rota['budget_days']:.0f} auditor-days")
+    if rota.get("auditors"):
+        pdf.field("Team size", f"{rota['auditors']} auditors")
+
+    schedule = person.get("schedule") or []
+    pdf.section(f"Where to be, in order - {len(schedule)} agency visit(s)")
+    if not schedule:
+        pdf.bullet("Nothing was allocated to this auditor. With more auditors than trips, "
+                   "somebody is idle, and that is reported rather than hidden by splitting "
+                   "an agency in two.")
+    for index, visit in enumerate(schedule, start=1):
+        pdf.visit_block(index, visit)
+
+    pdf.section("What to record at each work")
+    for line in (
+        "Whether the work exists at the location on the record.",
+        "Whether it is complete, genuinely under way, or has not started.",
+        "Whether what is there matches the recorded scope, size and place.",
+        "A photograph of the work board, which is matched and fingerprinted on upload.",
+        "'Nothing wrong' where nothing is wrong. A cleared work is a negative label, and "
+        "negatives are half of what makes this record usable.",
+    ):
+        pdf.bullet(line)
+
+    pdf.section("How this round was chosen")
+    pdf.set_font("Helvetica", "", 8.5)
+    pdf.set_text_color(*INK)
+    pdf.multi_cell(
+        0, 4.6,
+        _fold(
+            "Works were selected under an auditor-day budget rather than by working a "
+            "ranked list downwards, because cases do not cost the same to check: the first "
+            "work at an implementing agency is priced at a full day for travel, the visit "
+            "and the write-up, and each further work there at a fraction of a day, since "
+            "the auditor is already present. Those two figures are an assumption, not a "
+            "measurement - if they are wrong for your district, say so, because the plan "
+            "changes with them and nothing else has to."
+        ),
+        new_x="LMARGIN", new_y="NEXT",
+    )
+    pdf.ln(2)
+    pdf.multi_cell(
+        0, 4.6,
+        _fold(
+            "An agency is never split between two auditors: the saving above depends on "
+            "one person already standing there. The rota itself is a draft for a "
+            "supervisor to amend - it does not know who is on leave, which districts are "
+            "neighbours, or who already knows an agency."
+        ),
+        new_x="LMARGIN", new_y="NEXT",
+    )
+
+    pdf.ln(3)
+    pdf.set_font("Helvetica", "", 7.5)
+    pdf.set_text_color(*MUTED)
+    generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    pdf.multi_cell(0, 4, _fold(
+        f"Generated {generated} from the MPLADS intelligence pipeline. "
+        f"Data snapshot {config.SNAPSHOT_DATE.isoformat()}."
+    ), new_x="LMARGIN", new_y="NEXT")
+
+    buffer = BytesIO()
+    pdf.output(buffer)
+    LOGGER.info("day pack generated for %s", person.get("label"))
+    return buffer.getvalue()

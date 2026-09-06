@@ -140,6 +140,45 @@ VERIFICATION_FIELDS: list[tuple[str, str, str, dict]] = [
 ]
 
 
+#: The rota, as records an auditor opens on their phone at the district office.
+#:
+#: Deliberately a separate object rather than fields bolted onto Investigation_Case__c. A
+#: case is one work and lives for as long as the question about it does; an assignment is
+#: one work *on one round for one auditor under one budget*, and a supervisor re-plans a
+#: fortnight without wanting to touch the case history. Modelling them as one record is how
+#: replanning silently rewrites what happened last quarter.
+#:
+#: `Repeat_Visit__c` is the row worth surfacing: it is cheap because of a decision the plan
+#: already made, and it is the whole reason a budgeted plan beats a ranked list.
+ASSIGNMENT_FIELDS: list[tuple[str, str, str, dict]] = [
+    ("Assignment_Key__c", "Assignment Key", "Text",
+     {"length": 80, "externalId": True, "unique": True, "required": True}),
+    ("Work_Ref__c", "Work Reference", "Text", {"length": 40, "required": True}),
+    ("Investigation_Case__c", "Investigation Case", "Lookup",
+     {"referenceTo": "Investigation_Case__c",
+      "relationshipName": "Audit_Assignments", "relationshipLabel": "Audit Assignments"}),
+    ("Auditor__c", "Auditor", "Number", {"precision": 3, "scale": 0}),
+    ("Auditor_Label__c", "Assigned To", "Text", {"length": 80}),
+    ("Implementing_Agency__c", "Implementing Agency", "Text", {"length": 255}),
+    ("State__c", "State", "Text", {"length": 80}),
+    ("Visit_Order__c", "Visit Order", "Number", {"precision": 4, "scale": 0}),
+    ("Day_From__c", "Day From", "Number", {"precision": 4, "scale": 0}),
+    ("Day_To__c", "Day To", "Number", {"precision": 4, "scale": 0}),
+    ("Cost_Days__c", "Auditor-Days", "Number", {"precision": 5, "scale": 2}),
+    ("Exposure__c", "Exposure At Risk", "Currency", {"precision": 18, "scale": 2}),
+    ("Confidence_Band__c", "Confidence Band", "Picklist",
+     {"values": ["HIGH", "MEDIUM", "LOW"]}),
+    ("Repeat_Visit__c", "Same Trip - No Extra Travel", "Checkbox", {"default": "false"}),
+    ("Plan_Budget_Days__c", "Plan Budget (Auditor-Days)", "Number",
+     {"precision": 5, "scale": 0}),
+    ("Team_Size__c", "Team Size", "Number", {"precision": 3, "scale": 0}),
+    ("Visit_Status__c", "Visit Status", "Picklist",
+     {"values": ["Planned", "Travelling", "On Site", "Visited", "Could Not Reach"]}),
+    ("Not_A_Fraud_Finding__c", "Investigation Lead, Not A Finding", "Checkbox",
+     {"default": "true"}),
+]
+
+
 def field_xml(api: str, label: str, kind: str, spec: dict) -> str:
     body = [f"    <fullName>{api}</fullName>", f"    <label>{escape(label)}</label>",
             f"    <type>{kind}</type>"]
@@ -248,6 +287,50 @@ VERIFICATION_LIST_VIEWS = """    <listViews>
     </listViews>
 """
 
+ASSIGNMENT_LIST_VIEWS = """    <listViews>
+        <fullName>All_Assignments</fullName>
+        <columns>NAME</columns>
+        <columns>Auditor_Label__c</columns>
+        <columns>Implementing_Agency__c</columns>
+        <columns>Work_Ref__c</columns>
+        <columns>Day_From__c</columns>
+        <columns>Exposure__c</columns>
+        <filterScope>Everything</filterScope>
+        <label>All Audit Assignments</label>
+    </listViews>
+    <listViews>
+        <fullName>Still_To_Visit</fullName>
+        <columns>NAME</columns>
+        <columns>Auditor_Label__c</columns>
+        <columns>Implementing_Agency__c</columns>
+        <columns>Work_Ref__c</columns>
+        <columns>Day_From__c</columns>
+        <columns>Exposure__c</columns>
+        <filterScope>Everything</filterScope>
+        <filters>
+            <field>Visit_Status__c</field>
+            <operation>equals</operation>
+            <value>Planned</value>
+        </filters>
+        <label>Still To Visit</label>
+    </listViews>
+    <listViews>
+        <fullName>Same_Trip</fullName>
+        <columns>NAME</columns>
+        <columns>Implementing_Agency__c</columns>
+        <columns>Work_Ref__c</columns>
+        <columns>Cost_Days__c</columns>
+        <columns>Exposure__c</columns>
+        <filterScope>Everything</filterScope>
+        <filters>
+            <field>Repeat_Visit__c</field>
+            <operation>equals</operation>
+            <value>1</value>
+        </filters>
+        <label>Reached On A Trip Already Being Made</label>
+    </listViews>
+"""
+
 CASE_LIST_VIEWS = """    <listViews>
         <fullName>All_Cases</fullName>
         <columns>NAME</columns>
@@ -347,6 +430,7 @@ def app_xml() -> str:
             "    <formFactors>Large</formFactors>\n"
             "    <tabs>Investigation_Case__c</tabs>\n"
             "    <tabs>Evidence__c</tabs>\n    <tabs>Site_Verification__c</tabs>\n"
+            "    <tabs>Audit_Assignment__c</tabs>\n"
             "    <tabs>standard-report</tabs>\n"
             "    <tabs>standard-Dashboard</tabs>\n"
             "    <description>Investigation leads from the MPLADS intelligence engine, "
@@ -365,6 +449,7 @@ def permission_set_xml() -> str:
         ("Investigation_Case__c", [(f[0], f[3]) for f in CASE_FIELDS]),
         ("Evidence__c", [(f[0], f[3]) for f in EVIDENCE_FIELDS]),
         ("Site_Verification__c", [(f[0], f[3]) for f in VERIFICATION_FIELDS]),
+        ("Audit_Assignment__c", [(f[0], f[3]) for f in ASSIGNMENT_FIELDS]),
     ]
 
     field_rows = []
@@ -430,6 +515,8 @@ def main() -> None:
         ("Evidence__c", "Evidence", "Evidence", "EV", EVIDENCE_FIELDS, ""),
         ("Site_Verification__c", "Site Verification", "Site Verifications", "SV",
          VERIFICATION_FIELDS, VERIFICATION_LIST_VIEWS),
+        ("Audit_Assignment__c", "Audit Assignment", "Audit Assignments", "AA",
+         ASSIGNMENT_FIELDS, ASSIGNMENT_LIST_VIEWS),
     ]:
         base = SRC / "objects" / obj
         write(base / f"{obj}.object-meta.xml", object_xml(label, plural, prefix, views))
@@ -468,6 +555,19 @@ def main() -> None:
               ("Provenance", ["Row_Hash__c", "Demo__c"]),
           ]))
 
+    write(SRC / "layouts"
+          / "Audit_Assignment__c-Audit Assignment Layout.layout-meta.xml",
+          layout_xml("Audit_Assignment__c", [
+              ("Who And Where", ["Auditor_Label__c", "Auditor__c",
+                                 "Implementing_Agency__c", "State__c",
+                                 "Visit_Order__c", "Day_From__c", "Day_To__c"]),
+              ("The Work", ["Work_Ref__c", "Investigation_Case__c",
+                            "Confidence_Band__c", "Exposure__c"]),
+              ("What It Costs", ["Cost_Days__c", "Repeat_Visit__c",
+                                 "Plan_Budget_Days__c", "Team_Size__c"]),
+              ("Progress", ["Visit_Status__c", "Not_A_Fraud_Finding__c"]),
+          ]))
+
     write(SRC / "layouts" / "Evidence__c-Evidence Layout.layout-meta.xml",
           layout_xml("Evidence__c", [
               ("Evidence", ["Investigation_Case__c", "Work_Ref__c", "Signal__c",
@@ -478,11 +578,13 @@ def main() -> None:
     write(SRC / "tabs" / "Evidence__c.tab-meta.xml", tab_xml("Evidence__c", "Custom19: Handsaw"))
     write(SRC / "tabs" / "Site_Verification__c.tab-meta.xml",
           tab_xml("Site_Verification__c", "Custom51: Camera"))
+    write(SRC / "tabs" / "Audit_Assignment__c.tab-meta.xml",
+          tab_xml("Audit_Assignment__c", "Custom25: Calendar"))
     write(SRC / "applications" / "MPLADS_Investigations.app-meta.xml", app_xml())
     write(SRC / "permissionsets" / "MPLADS_Investigator.permissionset-meta.xml",
           permission_set_xml())
 
-    print(f"wrote {written} field definitions across 2 objects")
+    print(f"wrote {written} field definitions across 4 objects")
     print(f"package at {PKG}")
     print("\nNext, in that folder:")
     print("  npm install -g @salesforce/cli")

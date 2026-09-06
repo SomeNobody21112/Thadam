@@ -1,0 +1,34 @@
+# What `gcloud run deploy --source .` uploads as build context.
+#
+# `data/` is deliberately NOT ignored — the artifacts are baked into the image, so they
+# must reach Cloud Build. That is ~167 MB of upload on the first deploy.
+
+# The raw dataset is 878 MB and is never read at serve time. The pipeline consumes it
+# locally; the image only needs what the pipeline already produced.
+Dataset/
+
+.git/
+.gitignore
+.venv/
+**/__pycache__/
+**/*.pyc
+.pytest_cache/
+*.egg-info/
+
+# node_modules is reinstalled inside the frontend build stage from package-lock.json
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Local tooling and docs — not part of the running service
+.vscode/
+.claude/
+docs/
+demo/
+salesforce_package/
+salesforce_extras/
+tests/
+
+# Secrets never enter a build context. Cloud Run gets them from Secret Manager.
+.env

@@ -201,12 +201,19 @@ def _spend(agencies: np.ndarray, exposures: np.ndarray, order: np.ndarray,
 
 
 def compare_strategies(works: pd.DataFrame, budget_days: float = DEFAULT_BUDGET,
-                       seed: int = config.RANDOM_SEED) -> dict:
+                       seed: int = config.RANDOM_SEED,
+                       plan: pd.DataFrame | None = None) -> dict:
     """What each way of choosing would cover, for the same budget.
 
     The optimised plan is only worth recommending if it beats the obvious alternatives, and
     the obvious alternatives are what a department would otherwise do: work down the biggest
     cheques, work down the risk score, or pick without a system at all.
+
+    `plan` lets a caller that has *already* run the optimiser for this budget hand the
+    result in. Without it this function ran the optimiser a second time on the same works
+    and the same budget to produce a plan identical to the one its caller was holding —
+    which was a third of the wait on the audit-plan screen, spent recomputing a known
+    answer.
     """
     if works.empty:
         return {"budget_days": budget_days, "strategies": []}
@@ -235,7 +242,8 @@ def compare_strategies(works: pd.DataFrame, budget_days: float = DEFAULT_BUDGET,
         for name, order in orders.items()
     ]
 
-    plan = optimise(works, budget_days)
+    if plan is None:
+        plan = optimise(works, budget_days)
     results.append({
         "strategy": "Optimised plan",
         "optimised": True,
@@ -291,14 +299,21 @@ def coverage_curve(works: pd.DataFrame, budgets: tuple[int, ...] = BUDGET_PRESET
     return curve
 
 
-def build(works: pd.DataFrame, budget_days: float = DEFAULT_BUDGET) -> dict:
-    """Everything the audit-plan screen needs, from the scored works table."""
+def build(works: pd.DataFrame, budget_days: float = DEFAULT_BUDGET,
+          curve: list[dict] | None = None) -> dict:
+    """Everything the audit-plan screen needs, from the scored works table.
+
+    `curve` is accepted because the coverage curve does not depend on `budget_days` at all —
+    it always reports the same fixed presets. Recomputing it for every position of a slider
+    meant five extra runs of the optimiser to redraw a line that had not changed, which was
+    most of the wait on this screen.
+    """
     leads = works[works["band"].isin(["HIGH", "MEDIUM"])].copy()
     if leads.empty:
         return {"available": False, "note": "no leads to plan against"}
 
     plan = optimise(leads, budget_days)
-    comparison = compare_strategies(leads, budget_days)
+    comparison = compare_strategies(leads, budget_days, plan=plan)
 
     by_state = (
         plan.groupby("state_name", observed=True)
@@ -342,7 +357,7 @@ def build(works: pd.DataFrame, budget_days: float = DEFAULT_BUDGET) -> dict:
              "exposure_rupees": float(r.exposure), "days": round(float(r.days), 2)}
             for r in by_state.itertuples()
         ] if not by_state.empty else [],
-        "curve": coverage_curve(leads),
+        "curve": coverage_curve(leads) if curve is None else curve,
         "contract": (
             "A recommended plan for a human to approve, amend or reject. It allocates "
             "attention; it does not allege anything about any work, agency or person."

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Not_A_Fraud_Finding__c</fullName>
+    <label>Investigation Lead, Not A Finding</label>
+    <type>Checkbox</type>
+    <defaultValue>true</defaultValue>
+</CustomField>

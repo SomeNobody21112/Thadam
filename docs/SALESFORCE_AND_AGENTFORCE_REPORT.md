@@ -26,8 +26,8 @@ Org `00DAJ0000143KQ5EAI`, connected as `ropheangel1312...@agentforce.com`.
 
 | | |
 |---|---|
-| Custom objects | **2** — Investigation Case, Evidence |
-| Fields | **31**, correct types, picklists pre-populated |
+| Custom objects | **4** — Investigation Case, Evidence, Site Verification, Audit Assignment |
+| Fields | **65**, correct types, picklists pre-populated |
 | Investigation cases loaded | **500** (highest Audit-ROI, ₹97.5 Cr exposure) |
 | Evidence records loaded | **1,586**, every one linked to its case |
 | Path | **5 stages**, deployed with per-stage officer guidance |
@@ -44,6 +44,11 @@ reproducible: one command rebuilds the org from scratch.
 |---|---|
 | Salesforce casework hub | `/salesforce` |
 | Audit plan under a budget | `/audit-plan` |
+| **Field rota — the plan with names against it** | `/rota` |
+| **Field day pack — one auditor's round as a PDF** | button on every round |
+| **Agency dossier — the briefing for the journey** | `/agency` |
+| **Field scoreboard — has the model been right** | `/scoreboard` |
+| **Case ageing — what has gone quiet** | top of `/salesforce` |
 | Casework strip on every case file | `/case/:ref` |
 | PDF case report | button on every case file |
 | Agentforce assistant | floating, on every screen |
@@ -110,7 +115,7 @@ lakh that do not."*
 
 An officer should not have to know which of eleven screens holds the answer.
 
-### Six topics, all answering from real data
+### Ten topics, all answering from real data
 
 | Topic | Example question | What it does |
 |---|---|---|
@@ -120,8 +125,12 @@ An officer should not have to know which of eleven screens holds the answer.
 | Top Exposure | *"Which case has the highest exposure?"* | ranked by money at risk |
 | **Audit Planning** | *"What should I investigate first?"* | a live plan from the optimiser |
 | **Casework Status** | *"How many cases are open?"* | the 500 across the five Path stages |
+| **Overdue Casework** | *"What has gone quiet?"* | late cases, and the exposure sitting in them |
+| **Field Rota** | *"Split 50 days across 4 auditors"* | who goes where, on which day |
+| **Field Scoreboard** | *"Has the model been right?"* | what site visits said back |
+| **Agency Dossier** | *"Brief me on SARAN before I visit"* | the body, not the work |
 
-The last two are new. Before, both fell through to a generic reply.
+The last six are new. Before, all six fell through to a generic reply.
 
 Audit Planning parses a budget out of the question — *"plan 100 auditor-days"* returns a
 100-day plan — and calls the same engine the Audit Plan screen uses. One source of truth.
@@ -198,6 +207,109 @@ hard-wired to crown our own strategy would be decoration, not evidence.
 
 ---
 
+## 6b. What an auditor can now actually do with the plan
+
+The plan was the strongest thing here and it stopped one step short of a working week. Four
+tools close that gap, and each one is built so it can report a result we would rather it
+did not.
+
+### The field rota — the plan with names against it
+
+A supervisor cannot issue a plan. They issue a rota. That is a second problem with one hard
+rule:
+
+> **An implementing agency is never split between two auditors.**
+
+The plan's whole saving is that the second work at an agency costs 0.35 of a day *because
+someone is already standing there*. Send two people and that arrival is paid for twice and
+earned once — the plan's arithmetic quietly stops being true, and every figure downstream
+of it describes a plan nobody is executing.
+
+So the unit is the **trip**, not the work. Trips are dealt longest-first to whoever is least
+loaded. That is LPT, it is a heuristic — multiprocessor scheduling is NP-hard, like the
+selection problem it follows — but it carries Graham's proved bound of (4/3 − 1/3m) of the
+best possible longest round. **The bound and the spread actually achieved are both printed**,
+because a rota that calls itself balanced and is not will be found out in week one.
+
+At **50 auditor-days across 4 auditors**, on real data:
+
+| | |
+|---|---|
+| Agency visits | **23**, none split |
+| Works reached | **100** |
+| Auditor-days used | **49.95** of 50 |
+| Busiest / quietest round | **12.7 / 12.3** |
+| Spread across the team | **0.4 days** |
+
+More auditors than trips leaves somebody idle, and the rota **says so**. The tempting fix
+is to split an agency so every name has a line against it; that produces a rota that looks
+complete and costs more than the plan allowed. A test pins it.
+
+Each auditor's round exports as a **field day pack** — a PDF with the day-by-day itinerary,
+a tick box against every work, what to record (including *"nothing wrong"*), and the cost
+model printed on the page so an officer who finds the assumption wrong in the field can say
+so. And the whole rota loads into Salesforce as **`Audit_Assignment__c`**, which is why an
+officer standing outside a district office at nine in the morning opens their phone and
+sees which works they are there for. We did not build a mobile app for that either.
+
+### The agency dossier — and the one number that could get somebody hurt
+
+An auditor travels to a **body**, not a work. The dossier is the page for the journey.
+
+The care it needs is entirely in the comparison. A district office with four thousand works
+surfaces more leads than one with forty. Reading the raw count as a signal is the single
+most likely way a system like this gets somebody unfairly investigated — so every figure is
+printed **beside the national rate for the same measure**, below twenty works no rate is
+computed at all, and where an agency is ordinary the page says so in words:
+
+> *"6.6% of this agency's works were surfaced, against 17.9% nationally — below the
+> ordinary rate."*
+
+and where it is not:
+
+> *"31.0% … about 1.7 times the national rate. **That is a reason to look, not a finding.**"*
+
+What officers found on site sits **above** the model's reasoning on the page, because it is
+the only ground truth this system will ever have. Visits that *cleared* a work are shown
+with the same weight as visits that did not.
+
+### The field scoreboard — the screen that can say no
+
+Did the works we called HIGH turn out worse than the ones we called MEDIUM, on the works
+someone actually went to?
+
+Three disciplines, each of which costs a number we would rather show:
+
+1. **No rate below ten visits.** Three visits and two confirmations is three visits, not
+   sixty-seven percent. The bar is left **empty**, never drawn short — a short bar reads as
+   a low rate.
+2. **Every rate carries a Wilson interval.** Where two bands overlap, the ordering between
+   them is **not claimed**, however different the bars look.
+3. **The sample is not random and never will be.** Officers go where this model sends them,
+   so the never-surfaced negative class is barely represented. That is stated *with* the
+   result, not in a footnote — and it is why a work with a clear record still gets a case
+   file and can still be verified.
+
+Right now it reports three visits and refuses to score any of them. That is the correct
+answer, and it is the answer a judge should be shown.
+
+### Case ageing — the failure nobody screens for
+
+A lead that was surfaced, assigned, and then left for four months has not been monitored.
+It has been **filed**, and the exposure it carries is still out there.
+
+Two silences, counted apart on purpose: **late** means somebody committed to a date and the
+date passed; **never picked up** means the case is still on the stage it was loaded on — a
+different failure, and usually a supervisor's rather than an officer's. Merging them into
+one "overdue" figure hides whichever is smaller.
+
+It also fixed a real bug found by building it. The review clock was set by confidence band
+alone — and since all 500 loaded cases are HIGH, every one of them got the same date, so an
+ageing report could not tell a slipping ministry case from a routine district one. The
+clock is now set by the **escalation tier** and stretched by the band.
+
+---
+
 ## 7. The loop that makes it worth having
 
 An officer records a finding in the casework hub. That finding writes an **immutable,
@@ -223,6 +335,11 @@ has been reached.
 ---
 
 ## 8. Honest gaps
+
+**`Audit_Assignment__c` is built but not loaded.** The SFDX metadata and the CSV both
+exist and both regenerate from one command. The deploy and the bulk import have not been
+run against the live org — so the object is real and reproducible, and it is not in the org
+yet. Say it that way.
 
 **The agent inside the Salesforce org is not built.** What runs in the app is our own
 Agentforce-branded topic router over the same data. Building the real one is about fifteen
@@ -259,6 +376,22 @@ auditor-day figures from MoSPI would replace it without changing any code.
 > Committed strings, ten languages, works with no internet. And the figures are deliberately
 > not translated — a work reference is an identifier, not a word.
 
+**"Your rota — is that optimal either?"**
+> No. Same honesty: LPT is a heuristic, but it has a proved bound — the longest round is
+> within (4/3 − 1/3m) of the best rota that exists — and we print both the bound and the
+> spread we actually achieved. At 50 days across four auditors the spread is 0.4 days.
+
+**"Why not just split a big agency between two auditors?"**
+> Because the plan's saving is that the second work at an agency is cheap when somebody is
+> already standing there. Splitting pays for that journey twice. A test refuses any rota
+> that does it, and when there are more auditors than trips we report idle names rather
+> than manufacture work for them.
+
+**"Has your model actually been right?"**
+> We do not know yet, and the scoreboard says so rather than guessing. Three site visits
+> so far; no rate is reported below ten, and the sampling bias — officers go where the
+> model sends them — is printed with the table.
+
 **"Your optimiser — is it optimal?"**
 > No, and we have a test that documents where it loses. It is a greedy heuristic chosen
 > because it is explainable: at every step it took the case buying the most exposure per
@@ -272,11 +405,13 @@ auditor-day figures from MoSPI would replace it without changing any code.
 |---|---|
 | Works analysed | **2,10,993** |
 | Salesforce cases | **500** · evidence records **1,586** |
+| Custom objects · fields | **4** · **65** |
+| Rota at 50 days / 4 auditors | **23 trips / 100 works / 0.4-day spread** |
 | Exposure in the loaded cases | **₹97.5 Cr** |
 | Audit plan @ 50 days | **100 works / 23 visits / ₹47.1 Cr** |
 | Same budget, ranking top-down | 74 works / 37 visits / ₹42.4 Cr |
-| Agentforce topics | **6** |
+| Agentforce topics | **10** |
 | Assistant languages | **10**, all at 100% |
-| Tests passing | **210** |
+| Tests passing | **245** |
 
 **Quote these exactly or say "let me check".**

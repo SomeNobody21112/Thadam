@@ -18,6 +18,7 @@ export default function SalesforceHub() {
   // chrome around it is in Tamil is worse than not offering Tamil.
   const { lang } = useI18n();
   const [overview, setOverview] = useState(null);
+  const [ageing, setAgeing] = useState(null);
   const [cases, setCases] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedCase, setSelectedCase] = useState(null);
@@ -48,12 +49,16 @@ export default function SalesforceHub() {
   async function loadData() {
     setLoading(true);
     try {
-      const [ov, cs] = await Promise.all([
+      const [ov, cs, ag] = await Promise.all([
         api.salesforceOverview(),
         api.salesforceCases({ limit: 500 }),
+        // The queue is where a monitoring system fails invisibly, so it loads with
+        // everything else rather than sitting behind a click nobody makes.
+        api.salesforceAgeing().catch(() => null),
       ]);
       setOverview(ov);
       setCases(cs.items || []);
+      setAgeing(ag);
       if (cs.items?.length > 0) {
         selectCaseRecord(cs.items[0]);
       }
@@ -218,6 +223,55 @@ export default function SalesforceHub() {
             </div>
           </div>
         </div>
+
+        {/* ------------------------------------------------------- the ageing queue
+            A lead that was surfaced, assigned and then left for four months has not been
+            monitored, it has been filed — and the exposure in it is still out there. Two
+            silences are counted apart on purpose: *late* means somebody committed to a
+            date and the date passed; *never picked up* means nobody ever started, which is
+            usually a supervisor's failure rather than an officer's. */}
+        {ageing && (
+          <Reveal>
+            <div className="section-title">What has gone quiet</div>
+            <div className="card" style={{ marginBottom: 24 }}>
+              <div className="grid cols-4" style={{ marginBottom: 14 }}>
+                <div className="card stat">
+                  <div className="label">Past their review date</div>
+                  <div className="value accent">{num(ageing.late)}</div>
+                  <div className="foot">of {num(ageing.open_cases)} still open</div>
+                </div>
+                <div className="card stat">
+                  <div className="label">Exposure sitting in them</div>
+                  <div className="value">{rupees(ageing.late_exposure_rupees)}</div>
+                  <div className="foot">still out there while nobody looks</div>
+                </div>
+                <div className="card stat">
+                  <div className="label">Never picked up</div>
+                  <div className="value">{num(ageing.never_picked_up)}</div>
+                  <div className="foot">still on the stage they were loaded on</div>
+                </div>
+                <div className="card stat">
+                  <div className="label">Oldest</div>
+                  <div className="value">{num(ageing.oldest_days_late)}</div>
+                  <div className="foot">days past the committed date</div>
+                </div>
+              </div>
+
+              <div className="dossier-reading" style={{ padding: "10px 14px" }}>
+                {ageing.reading}
+              </div>
+
+              <div className="dossier-chips" style={{ marginTop: 12 }}>
+                {ageing.buckets.map((bucket) => (
+                  <span key={bucket.label} className="chip">
+                    {bucket.label} <b>{num(bucket.cases)}</b>
+                  </span>
+                ))}
+              </div>
+              <p className="plan-cost-note">{ageing.note} {ageing.contract}</p>
+            </div>
+          </Reveal>
+        )}
 
         {/* 4 Metric Cards */}
         <Reveal>

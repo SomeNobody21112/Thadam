@@ -32,7 +32,7 @@ from mplads.api import auth
 from mplads.api.strings import UI
 from mplads.api import translations
 from mplads.api.audit import AuditLog
-from mplads.intelligence import targeting
+from mplads.intelligence import assignment, calibration, dossier, targeting
 from mplads.api.auth import Principal, current_principal
 
 LOGGER = logging.getLogger(__name__)
@@ -50,6 +50,29 @@ async def lifespan(_: FastAPI):
     except Exception as exc:  # pragma: no cover - never block startup on a warm-up
         LOGGER.warning("search index not pre-built (%s); it will build on first use",
                        type(exc).__name__)
+    try:
+        # The plan at the default budget is what the Audit Plan screen asks for first, and
+        # it is ten seconds of arithmetic. Paying it here means no officer ever does.
+        _plan_cached("*", float(targeting.DEFAULT_BUDGET))
+        _rota_cached("*", float(targeting.DEFAULT_BUDGET), 4)
+    except Exception as exc:  # pragma: no cover - never block startup on a warm-up
+        LOGGER.warning("audit plan not pre-built (%s); it will build on first use",
+                       type(exc).__name__)
+    try:
+        # Find out here whether the live model actually answers. Without this the *first*
+        # visitor of the day pays the round-trip that discovers the key has no credits,
+        # and reads it as the site being slow. `llm._ask` remembers the answer, so this is
+        # the only time anything waits for it.
+        llm.portfolio_insight(store().stats, "en")
+    except Exception as exc:  # pragma: no cover - never block startup on a warm-up
+        LOGGER.info("insight not pre-built (%s)", type(exc).__name__)
+    try:
+        # Touching the duplicate frame here pulls it into memory and lets pandas build its
+        # indices, which is most of the cost of the first Near-Duplicates page load.
+        if not store().duplicate_pairs.empty:
+            _concerning_pairs()
+    except Exception as exc:  # pragma: no cover - never block startup on a warm-up
+        LOGGER.info("duplicate frame not warmed (%s)", type(exc).__name__)
     yield
 
 
@@ -556,21 +579,204 @@ def audit_plan(budget_days: float = Query(targeting.DEFAULT_BUDGET, ge=1, le=100
     which is a different question because cases do not cost the same to check — five works
     at one district office are one trip.
     """
+    # A scoped officer plans their own jurisdiction, not the country.
+    return _plan_cached(_scope_key(principal), float(budget_days))
+
+
+def _scope_key(principal: Principal) -> str:
+    """One string that identifies exactly which slice of the country this caller sees.
+
+    It is the cache key, so it has to be *complete*: a key that collapsed two different
+    jurisdictions together would serve a Bihar officer a plan built from Kerala's works,
+    which is a data leak wearing the costume of a performance optimisation.
+    """
+    if principal.unrestricted:
+        return "*"
+    return f"{principal.role}:{principal.scope}"
+
+
+#: The plan is the most expensive thing this service computes, and it is *deterministic* —
+#: same works, same budget, same plan, every time. It was being rebuilt from scratch on
+#: every page load: ten seconds, seven full runs of the optimiser (one for the plan, one
+#: for the comparison table, five for the coverage curve), all to produce bytes identical
+#: to the ones produced a moment earlier.
+#:
+#: Cached on (jurisdiction, budget) rather than memoised inside `targeting` because the
+#: jurisdiction has to be part of the key and only this layer knows it. Small enough to
+#: hold every budget preset for every demo account at once; the artifacts are read-only
+#: between pipeline runs, so nothing can go stale under it while the service is up.
+@lru_cache(maxsize=128)
+def _plan_cached(scope_key: str, budget_days: float) -> dict:
+    return targeting.build(_frame_for_scope(scope_key), budget_days=budget_days,
+                           curve=_curve_cached(scope_key))
+
+
+#: The coverage curve does not depend on the budget — it always reports the same fixed
+#: presets — so it is cached once per jurisdiction rather than per slider position. It was
+#: five runs of the optimiser on every request, redrawing a line that had not moved.
+@lru_cache(maxsize=16)
+def _curve_cached(scope_key: str) -> list[dict]:
+    frame = _frame_for_scope(scope_key)
+    leads = frame[frame["band"].isin(["HIGH", "MEDIUM"])]
+    return targeting.coverage_curve(leads) if not leads.empty else []
+
+
+@lru_cache(maxsize=128)
+def _rota_cached(scope_key: str, budget_days: float, auditors: int) -> dict:
+    return assignment.build(_frame_for_scope(scope_key),
+                            budget_days=budget_days, auditors=auditors)
+
+
+def _frame_for_scope(scope_key: str) -> pd.DataFrame:
+    """The planning frame for a cache key, narrowed the same way `_scoped_plan_frame` is."""
     frame = store().plan_frame
     if frame.empty:
         raise HTTPException(503, "no scored works available; run the pipeline first")
+    if scope_key == "*":
+        return frame
 
-    # A scoped officer plans their own jurisdiction, not the country.
-    if not principal.unrestricted:
-        column = auth.ROLE_SCOPE.get(principal.role)
-        mapped = {"state": "state_name", "implementing_agency": "implementing_agency",
-                  "constituency": "constituency"}.get(column)
-        if mapped and mapped in frame.columns and principal.scope:
-            frame = frame[frame[mapped] == principal.scope]
-        if frame.empty:
-            raise HTTPException(404, f"no works within {principal.scope}")
+    role, _, scope = scope_key.partition(":")
+    column = auth.ROLE_SCOPE.get(role)
+    mapped = {"state": "state_name", "implementing_agency": "implementing_agency",
+              "constituency": "constituency"}.get(column)
+    if mapped and mapped in frame.columns and scope:
+        frame = frame[frame[mapped] == scope]
+    if frame.empty:
+        raise HTTPException(404, f"no works within {scope}")
+    return frame
 
-    return targeting.build(frame, budget_days=budget_days)
+
+def _scoped_plan_frame(principal: Principal) -> pd.DataFrame:
+    """The planning frame narrowed to whatever jurisdiction the caller actually holds.
+
+    Shared by the plan and the rota so a scoped officer cannot get a national answer by
+    asking the second endpoint instead of the first.
+    """
+    frame = store().plan_frame
+    if frame.empty:
+        raise HTTPException(503, "no scored works available; run the pipeline first")
+    if principal.unrestricted:
+        return frame
+
+    column = auth.ROLE_SCOPE.get(principal.role)
+    mapped = {"state": "state_name", "implementing_agency": "implementing_agency",
+              "constituency": "constituency"}.get(column)
+    if mapped and mapped in frame.columns and principal.scope:
+        frame = frame[frame[mapped] == principal.scope]
+    if frame.empty:
+        raise HTTPException(404, f"no works within {principal.scope}")
+    return frame
+
+
+@app.get("/api/audit-plan/assignments")
+def audit_assignments(budget_days: float = Query(targeting.DEFAULT_BUDGET, ge=1, le=1000),
+                      auditors: int = Query(4, ge=1, le=assignment.MAX_AUDITORS),
+                      principal: Principal = Depends(current_principal)) -> dict:
+    """The plan with names against it: who goes where, and on which day.
+
+    The plan says where the days should go. A supervisor has to issue something with people
+    on it, and that is a second problem with one hard rule — an implementing agency is
+    never split between two auditors, because the plan's whole saving is that the second
+    work at an agency is cheap when somebody is already standing there.
+    """
+    return _rota_cached(_scope_key(principal), float(budget_days), int(auditors))
+
+
+@app.get("/api/audit-plan/assignments/{auditor}/pack.pdf")
+def audit_day_pack(auditor: int,
+                   budget_days: float = Query(targeting.DEFAULT_BUDGET, ge=1, le=1000),
+                   auditors: int = Query(4, ge=1, le=assignment.MAX_AUDITORS),
+                   principal: Principal = Depends(current_principal)):
+    """One auditor's round as a document they can carry, tick and hand back."""
+    rota = _rota_cached(_scope_key(principal), float(budget_days), int(auditors))
+    if not rota.get("available"):
+        raise HTTPException(404, rota.get("note", "no rota available"))
+
+    person = next((p for p in rota["people"] if p["auditor"] == auditor), None)
+    if person is None:
+        raise HTTPException(404, f"no auditor {auditor} in a team of {auditors}")
+
+    audit().record(
+        actor=principal.subject or "anonymous", role=principal.role or "viewer",
+        action="EXPORT_DAY_PACK",
+        resource=f"/api/audit-plan/assignments/{auditor}/pack.pdf",
+        detail={"budget_days": budget_days, "auditors": auditors,
+                "works": person["works"]},
+    )
+    return Response(
+        content=casereport.build_day_pack(person, rota),
+        media_type="application/pdf",
+        headers={"Content-Disposition":
+                 f'inline; filename="MPLADS-day-pack-auditor-{auditor}.pdf"'},
+    )
+
+
+@app.get("/api/agencies")
+def agency_list(limit: int = Query(40, ge=1, le=200)) -> dict:
+    """Implementing agencies by exposure carried — a picker, not a ranking of conduct."""
+    return {
+        "items": dossier.agencies(store().corpus, limit=limit),
+        "note": ("Ordered by exposure carried, which tracks size as much as anything else. "
+                 "Open a dossier to see the rate rather than the count."),
+    }
+
+
+@app.get("/api/agency/{agency}")
+def agency_dossier(agency: str,
+                   principal: Principal = Depends(current_principal)) -> dict:
+    """What an auditor should read on the way to an implementing agency.
+
+    An auditor's day is organised around a body, not a work — which is why the plan batches
+    by agency and the rota is dealt out in whole agencies. This is the page for the journey.
+    """
+    frame = store().corpus
+    if frame.empty:
+        raise HTTPException(503, "no scored works available; run the pipeline first")
+
+    match = next((str(name) for name in frame["implementing_agency"].unique()
+                  if str(name).lower() == agency.lower()), None)
+    if match is None:
+        raise HTTPException(404, "no such implementing agency in this portfolio")
+
+    row = frame[frame["implementing_agency"] == match].iloc[0]
+    auth.require_scope(
+        principal,
+        {"state": str(row["state_name"]), "implementing_agency": match,
+         "constituency": str(row["constituency"])},
+        f"agency dossier {match}",
+    )
+
+    try:
+        verifications = field.recent(limit=5000)
+    except Exception:            # a missing store must not empty the dossier
+        verifications = []
+
+    return dossier.build(
+        frame, match,
+        cases_by_ref=store().cases_by_ref,
+        duplicate_pairs=store().duplicate_pairs,
+        verifications=verifications,
+    )
+
+
+@app.get("/api/calibration")
+def model_calibration() -> dict:
+    """Has the model been right? The one table this system is allowed to lose on.
+
+    Compares what officers recorded on site against the band each work was surfaced with.
+    Rates below a minimum sample are refused rather than printed, every rate carries a
+    Wilson interval, and the sampling bias — officers go where this model sends them — is
+    stated with the result rather than in a footnote nobody reads.
+    """
+    try:
+        verifications = field.recent(limit=5000)
+    except Exception as exc:
+        raise HTTPException(503, f"verification store unavailable: {type(exc).__name__}")
+
+    bands = {ref: case["confidence_band"] for ref, case in store().cases_by_ref.items()}
+    result = calibration.build(verifications, bands, field.CONFIRMS_CONCERN)
+    result["label_readiness"] = field.label_readiness()
+    return result
 
 
 @app.get("/api/case/{work_ref}/report.pdf")
@@ -863,6 +1069,16 @@ def archetypes(limit: int = Query(50, ge=1, le=100)) -> list[dict]:
     return store().stats.get("archetype_intelligence", [])[:limit]
 
 
+#: Narrowing 223,407 pairs down to the 47,709 worth asking about is a fixed filter over a
+#: frame that does not change while the service is up — but it was being re-run on every
+#: request, including every page of the same table, at about two seconds a time.
+@lru_cache(maxsize=1)
+def _concerning_pairs() -> pd.DataFrame:
+    from mplads.intelligence import duplicates as dup_mod
+
+    return dup_mod.concerning(store().duplicate_pairs)
+
+
 @app.get("/api/duplicates")
 def duplicate_pairs(
     limit: int = Query(50, ge=1, le=200),
@@ -877,9 +1093,7 @@ def duplicate_pairs(
         return {"total": 0, "items": [], "summary": summary}
 
     if concerning_only:
-        from mplads.intelligence import duplicates as dup_mod
-
-        frame = dup_mod.concerning(frame)
+        frame = _concerning_pairs()
     if state:
         frame = frame[frame["state_name"] == state]
     if classification:
@@ -1016,3 +1230,57 @@ def agentforce_query(req: AgentforceQueryRequest) -> dict:
         raise HTTPException(400, "question is required")
     return sf.query_agentforce(req.question.strip(), lang=req.lang.strip())
 
+
+
+@app.get("/api/salesforce/ageing")
+def salesforce_ageing(as_of: str = Query("")) -> dict:
+    """Which cases have gone quiet, and how much exposure is sitting in them.
+
+    The queue is where a monitoring system fails invisibly: a lead that was surfaced,
+    assigned and then left for four months has not been monitored, it has been filed. This
+    puts a rupee figure on that, so it is a number in a review meeting rather than a
+    discovery in an audit.
+    """
+    from mplads import salesforce as sf
+
+    try:
+        return sf.case_ageing(as_of)
+    except ValueError:
+        raise HTTPException(400, "as_of must be an ISO date, for example 2026-08-28")
+
+
+# --------------------------------------------------------------- static frontend
+#
+# When the built React app is present, this one service serves both it and the API.
+# Same origin means no CORS to configure, no second host to keep in sync, and no
+# build-time API base to get wrong.
+#
+# Registered last on purpose: FastAPI matches routes in registration order, so the SPA
+# catch-all below must come after every `/api/...` route or it would swallow them.
+
+_FRONTEND_DIST = config.REPO_ROOT / "frontend" / "dist"
+
+if _FRONTEND_DIST.is_dir():
+    from fastapi.staticfiles import StaticFiles
+
+    app.mount("/assets", StaticFiles(directory=_FRONTEND_DIST / "assets"), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def serve_spa(full_path: str) -> FileResponse:
+        """Return the built app for any non-API path.
+
+        The dashboard is a single-page app: `/case/MP3018356-W86316` is a client-side route,
+        not a file, so a hard refresh on it must still return `index.html` rather than 404.
+        An unknown `/api/...` path is answered honestly with a 404 instead of being handed
+        the HTML shell, which would otherwise surface as a confusing JSON parse error.
+        """
+        if full_path.startswith("api/"):
+            raise HTTPException(404, "no such endpoint")
+        candidate = _FRONTEND_DIST / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_FRONTEND_DIST / "index.html")
+
+    LOGGER.info("serving the built frontend from %s", _FRONTEND_DIST)
+else:
+    LOGGER.info("no frontend build at %s - serving the API only", _FRONTEND_DIST)

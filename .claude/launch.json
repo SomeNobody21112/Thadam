@@ -8,9 +8,9 @@
         "run",
         "dev"
       ],
-      "port": 5173,
+      "port": 4300,
       "cwd": "frontend",
-      "autoPort": true
+      "autoPort": false
     }
   ]
 }
