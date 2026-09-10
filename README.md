@@ -66,6 +66,32 @@ git lfs pull
 This pulls the large raw CSVs and the pre-computed embeddings cache (`desc_embeddings.npz`).
 Without this step, the files will be empty pointer stubs.
 
+#### Verifying dataset integrity (defect-3 note)
+
+`Dataset/metadata/raw_sources.json` records the expected row count, byte size and
+SHA-256 for every raw source. **A plain `git clone` cannot verify these hashes**:
+until `git lfs pull` runs, the large files on disk are ~130-byte LFS pointer stubs,
+not the real data, so any hash you compute from them is a hash of the stub.
+
+After `git lfs pull` completes, verify with:
+
+```bash
+python - <<'EOF'
+import hashlib, json, os
+manifest = json.load(open("Dataset/metadata/raw_sources.json"))
+for src in manifest:
+    path = os.path.join("Dataset", src["file"])
+    h = hashlib.sha256(open(path, "rb").read()).hexdigest()
+    status = "OK" if h == src["sha256"] else f"MISMATCH (expected {src['sha256']})"
+    print(f"{status:10s} {src['file']}")
+EOF
+```
+
+All four sources should print `OK`. A `MISMATCH` means the file on disk differs from
+what the manifest declares — re-run `git lfs pull` before investigating anything else.
+Note the manifest hash covers the *raw* file as published by the upstream mirror;
+Git LFS stores the identical bytes, so the check works directly against the checked-out file.
+
 ### 2. Python environment
 
 ```bash
